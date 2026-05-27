@@ -9,9 +9,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
-from .core import run_command
+from .core import event, run_command
 from .report import generate_index, generate_report, read_limited
-from .storage import Paths, connect, get_events, get_file_changes, get_run, init_workspace, list_runs, load_config
+from .storage import Paths, connect, get_events, get_file_changes, get_run, init_workspace, insert_event, list_runs, load_config
 
 
 class DashboardServer:
@@ -156,10 +156,20 @@ def api_runs(paths: Paths, limit: int = 100) -> dict[str, Any]:
         items: list[dict[str, Any]] = []
         for run in runs:
             changes = get_file_changes(conn, run["id"])
+            events = get_events(conn, run["id"])
             item = dict(run)
             item["changed_files_count"] = len(changes)
+            item["event_count"] = len(events)
             items.append(item)
     return {"schema_version": 1, "runs": items}
+
+
+def _event_payload(ev: dict[str, Any]) -> dict[str, Any]:
+    try:
+        ev["data_obj"] = json.loads(ev.get("data") or "{}")
+    except Exception:
+        ev["data_obj"] = {}
+    return ev
 
 
 def api_run_detail(paths: Paths, run_id: str) -> dict[str, Any] | None:
@@ -169,7 +179,7 @@ def api_run_detail(paths: Paths, run_id: str) -> dict[str, Any] | None:
         run = get_run(conn, run_id)
         if run is None:
             return None
-        events = [dict(ev) for ev in get_events(conn, run_id)]
+        events = [_event_payload(dict(ev)) for ev in get_events(conn, run_id)]
         changes = [dict(change) for change in get_file_changes(conn, run_id)]
 
     run_dict = dict(run)
@@ -207,8 +217,10 @@ def api_create_run(paths: Paths, body: dict[str, Any]) -> tuple[dict[str, Any], 
     except (OSError, TypeError, ValueError) as exc:
         return {"error": exc.__class__.__name__, "message": str(exc)}, 400
 
-    generate_report(paths, result.run_id)
+    report_path = generate_report(paths, result.run_id)
     generate_index(paths)
+    with connect(paths) as conn:
+        insert_event(conn, event(result.run_id, "report.generated", "Generated HTML report", {"report_path": str(report_path.relative_to(paths.root))}))
     detail = api_run_detail(paths, result.run_id)
     return {"ok": True, "run_id": result.run_id, "detail": detail}, 201
 
@@ -305,7 +317,7 @@ def render_dashboard_html() -> str:
     .btn:hover:not(:disabled) { border-color: var(--accent); background: rgba(142,181,255,.10); transform: translateY(-1px); }
     .btn:disabled { opacity: .55; cursor: not-allowed; }
     .btn.primary { background: linear-gradient(135deg, rgba(142,181,255,.22), rgba(177,140,255,.18)); border-color: rgba(142,181,255,.55); }
-    .summary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .summary { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
     .summary-card { background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.025)); border: 1px solid var(--line); border-radius: 18px; padding: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.18); }
     .summary-card span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
     .summary-card strong { display: block; font-size: 24px; margin-top: 6px; letter-spacing: -.02em; }
@@ -339,7 +351,7 @@ def render_dashboard_html() -> str:
     .muted { color: var(--muted); }
     .detail { min-height: 640px; }
     .empty { padding: 60px 24px; color: var(--muted); text-align: center; }
-    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
+    .metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
     .metric { background: var(--panel-3); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
     .metric span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 7px; }
     .metric strong { font-size: 22px; }
@@ -362,7 +374,13 @@ def render_dashboard_html() -> str:
     .timeline { list-style: none; padding: 0; margin: 0; }
     .timeline li { padding: 0 0 14px 22px; border-left: 1px solid var(--line); position: relative; }
     .timeline li::before { content: ''; position: absolute; left: -5px; top: 5px; width: 9px; height: 9px; border-radius: 99px; background: var(--accent); box-shadow: 0 0 0 4px rgba(142,181,255,.12); }
+    .timeline li.kind-stdout::before { background: var(--ok); }
+    .timeline li.kind-stderr::before, .timeline li.kind-security::before { background: var(--warn); }
+    .timeline li.kind-process::before { background: var(--accent-2); }
+    .timeline li.kind-file::before, .timeline li.kind-git::before { background: #67e8f9; }
     .timeline .time { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+    .event-kind { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; margin-right: 8px; font-size: 12px; color: var(--accent); }
+    .event-data { margin-top: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .error { color: var(--fail); padding: 14px 16px; }
     .notice { color: var(--muted); background: rgba(255,255,255,.035); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
     @media (max-width: 1120px) { .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); } .layout { grid-template-columns: 1fr; } .runs { max-height: 420px; } .runner-form { grid-template-columns: 1fr; } }
@@ -449,7 +467,7 @@ function renderSummary() {
   const avg = total ? Math.round(state.runs.reduce((acc, r) => acc + num(r.duration_ms), 0) / total) : 0;
   const rate = total ? Math.round((success / total) * 100) + '%' : '—';
   $('summary').innerHTML = [
-    ['Total Runs', total], ['Success Rate', rate], ['Failed', failed], ['Changed Files', changed], ['Risky Runs', risky], ['Avg Duration', avg + 'ms']
+    ['Total Runs', total], ['Success Rate', rate], ['Failed', failed], ['Changed Files', changed], ['Events', state.runs.reduce((acc, r) => acc + num(r.event_count), 0)], ['Risky Runs', risky], ['Avg Duration', avg + 'ms']
   ].map(([label, value]) => `<div class="summary-card"><span>${label}</span><strong>${value}</strong></div>`).join('');
 }
 
@@ -482,7 +500,7 @@ function renderRuns() {
     return `<button class="run-item${active}" onclick="selectRun('${esc(r.id)}')">
       <div class="run-top"><span class="run-id">${esc(r.id)}</span><span class="pill ${cls}">exit ${esc(r.exit_code)}</span></div>
       <div class="cmd"><code>${esc(r.command)}</code></div>
-      <div class="meta"><span>${esc(r.duration_ms)}ms</span><span>files ${esc(r.changed_files_count ?? 0)}</span><span>risk ${esc(r.risk_level || 'low')}</span></div>
+      <div class="meta"><span>${esc(r.duration_ms)}ms</span><span>files ${esc(r.changed_files_count ?? 0)}</span><span>events ${esc(r.event_count ?? 0)}</span><span>risk ${esc(r.risk_level || 'low')}</span></div>
     </button>`;
   }).join('');
 }
@@ -550,6 +568,7 @@ function renderDetail() {
       <div class="metric"><span>Exit Code</span><strong class="${exitCls}">${esc(r.exit_code)}</strong></div>
       <div class="metric"><span>Duration</span><strong>${esc(r.duration_ms)}ms</strong></div>
       <div class="metric"><span>Changed Files</span><strong>${files.length}</strong></div>
+      <div class="metric"><span>Events</span><strong>${events.length}</strong></div>
       <div class="metric"><span>Risk</span><strong class="${r.risk_level === 'high' ? 'warn' : ''}">${esc(r.risk_level || 'low')}</strong></div>
     </div>
     <div class="section">
@@ -573,7 +592,7 @@ function renderDetail() {
     </div>
     <div class="section">
       <h3>Timeline</h3>
-      <ol class="timeline">${events.map(ev => `<li><div class="time">${esc(ev.ts)}</div><strong>${esc(ev.kind)}</strong><div class="muted">${esc(ev.message)}</div></li>`).join('') || '<li>No events recorded.</li>'}</ol>
+      <ol class="timeline">${events.map(renderEvent).join('') || '<li>No events recorded.</li>'}</ol>
     </div>
     <div class="section">
       <h3>Security Notes</h3>
@@ -609,6 +628,24 @@ function renderDiff(text) {
     else if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) cls += ' file';
     return `<span class="${cls}">${esc(line || ' ')}</span>`;
   }).join('')}</div>`;
+}
+
+function renderEvent(ev) {
+  const data = ev.data_obj || safeJson(ev.data, {});
+  const offset = Number.isInteger(data.offset_ms) ? '+' + data.offset_ms + 'ms' : '';
+  const kindClass = 'kind-' + String(ev.kind || 'event').split('.')[0];
+  const dataPreview = eventDataPreview(ev.kind, data);
+  return `<li class="${esc(kindClass)}"><div class="time">${esc(offset || ev.ts)}</div><span class="event-kind">${esc(ev.kind)}</span><strong>${esc(ev.message)}</strong>${dataPreview ? `<div class="event-data">${esc(dataPreview)}</div>` : ''}</li>`;
+}
+
+function eventDataPreview(kind, data) {
+  if (!data || typeof data !== 'object') return '';
+  if (kind === 'stdout.chunk' || kind === 'stderr.chunk') return `stream=${data.stream || ''}, chars=${data.chars || 0}${data.truncated ? ', truncated' : ''}`;
+  if (kind === 'file.changed') return `${data.status || ''} ${data.path || ''}`;
+  if (kind === 'git.diff.captured') return `changed=${data.changed_files_count || 0}; ${data.diff_stat || ''}`;
+  if (kind === 'process.exited') return `exit=${data.exit_code}; stdout_lines=${data.stdout_lines || 0}; stderr_lines=${data.stderr_lines || 0}`;
+  if (kind === 'command.started') return data.shell ? 'shell=true' : 'shell=false';
+  return '';
 }
 
 function renderFiles(files) {

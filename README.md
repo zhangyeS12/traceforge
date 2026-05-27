@@ -5,7 +5,7 @@
 TraceForge records what actually happened during a coding-agent or shell-command run: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, reports, and JSON traces. It also ships with a local browser dashboard so you can replay and inspect a run without uploading your code anywhere.
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-0.6.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.7.0-blue">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="status" src="https://img.shields.io/badge/status-local--first_devtool-purple">
@@ -42,6 +42,7 @@ It shows run metrics, a searchable run list, command details, stdout, stderr, pa
 
 - **CLI recorder**: `traceforge run -- <command>` records one command run.
 - **Dashboard runner**: run commands directly from the browser dashboard.
+- **Replayable timeline**: records command start, stdout/stderr chunks, process exit, Git diff capture, file changes, report generation, and JSON export events.
 - **Live output**: `--live` streams stdout/stderr while still recording artifacts.
 - **Git diff capture**: records changed files, diff stat, and patch.
 - **Local SQLite store**: traces live under `.traceforge/` inside your project.
@@ -123,6 +124,7 @@ traceforge doctor [--json]
 traceforge run [--live] [--shell] [--no-propagate-exit] -- <command>
 traceforge list [--limit 20]
 traceforge show <run_id>
+traceforge timeline <run_id> [--json]
 traceforge report <run_id>
 traceforge open [run_id]
 traceforge dashboard [--host 127.0.0.1] [--port 8787] [--no-open]
@@ -192,6 +194,8 @@ Git snapshot after + patch diff
         ↓
 SQLite trace storage
         ↓
+Timeline events + SQLite trace storage
+        ↓
 HTML report / JSON export / dashboard API
 ```
 
@@ -208,7 +212,7 @@ traceforge release-check
 Before sharing a zip release:
 
 ```bash
-traceforge release-check --zip traceforge_v0_6.zip
+traceforge release-check --zip traceforge_v0_7.zip
 ```
 
 These checks exist because real user environments are messy: Windows encodings, missing tools, broken PATH entries, stale dashboards, and packaging mistakes can all happen.
@@ -220,6 +224,7 @@ These checks exist because real user environments are messy: Windows encodings, 
 - Side-by-side diff viewer.
 - Test-result parsers for pytest, npm, Jest, and cargo test.
 - Run tags, notes, and search improvements.
+- Timeline filtering and event detail drawers.
 - Better dashboard empty states and error recovery.
 - Installable package release workflow.
 
@@ -238,7 +243,7 @@ TraceForge should become the local observability layer for agentic coding: every
 
 ## Resume description
 
-> Built TraceForge, a local black-box recorder for AI coding agents and shell commands. Implemented a CLI and browser dashboard that capture subprocess output, Git patches, changed files, runtime metadata, security warnings, SQLite traces, HTML replay reports, JSON exports, selftests, and release checks.
+> Built TraceForge, a local black-box recorder for AI coding agents and shell commands. Implemented a CLI and browser dashboard that capture subprocess output, Git patches, changed files, fine-grained timeline events, runtime metadata, security warnings, SQLite traces, HTML replay reports, JSON exports, selftests, and release checks.
 
 ## Contributing
 

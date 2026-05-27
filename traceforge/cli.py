@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .core import run_command
+from .core import event, run_command
 from .report import generate_index, generate_report
 from .server import serve_dashboard
 from .storage import (
@@ -24,6 +24,7 @@ from .storage import (
     get_file_changes,
     get_run,
     init_workspace,
+    insert_event,
     list_runs,
     paths_for,
 )
@@ -47,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_list(argv[1:])
     if cmd == "show":
         return cmd_show(argv[1:])
+    if cmd == "timeline":
+        return cmd_timeline(argv[1:])
     if cmd == "report":
         return cmd_report(argv[1:])
     if cmd == "open":
@@ -103,6 +106,8 @@ def cmd_run(args: list[str]) -> int:
     paths = paths_for()
     report_path = generate_report(paths, result.run_id)
     generate_index(paths)
+    with connect(paths) as conn:
+        insert_event(conn, event(result.run_id, "report.generated", "Generated HTML report", {"report_path": str(report_path.relative_to(paths.root))}))
     print(f"Run recorded: {result.run_id}")
     print(f"Exit code: {result.exit_code}")
     print(f"Duration: {result.duration_ms} ms")
@@ -163,6 +168,51 @@ def cmd_show(args: list[str]) -> int:
         print("  none")
     print(f"Report: {paths.reports_dir / (run_id + '.html')}")
     return 0
+
+
+def cmd_timeline(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="traceforge timeline")
+    parser.add_argument("run_id")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    ns = parser.parse_args(args)
+
+    paths = init_workspace()
+    with connect(paths) as conn:
+        run = get_run(conn, ns.run_id)
+        events = get_events(conn, ns.run_id)
+    if run is None:
+        print(f"Run not found: {ns.run_id}")
+        return 1
+
+    rows = []
+    for ev in events:
+        data = safe_json(ev["data"], {})
+        rows.append({
+            "ts": ev["ts"],
+            "kind": ev["kind"],
+            "message": ev["message"],
+            "offset_ms": data.get("offset_ms"),
+            "data": data,
+        })
+
+    if ns.json:
+        print(json.dumps({"run_id": ns.run_id, "events": rows}, indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"Timeline: {ns.run_id}")
+    print(f"Command: {run['command']}")
+    for row in rows:
+        offset = row["offset_ms"]
+        offset_text = f"+{offset:>5}ms" if isinstance(offset, int) else "       "
+        print(f"{offset_text}  {row['kind']:<22} {row['message']}")
+    return 0
+
+
+def safe_json(value: str | None, fallback: Any) -> Any:
+    try:
+        return json.loads(value or "{}")
+    except Exception:
+        return fallback
 
 
 def cmd_report(args: list[str]) -> int:
@@ -271,6 +321,11 @@ def export_run(paths: Any, run_id: str, out: Path | None = None) -> Path:
     target = out or (paths.runs_dir / run_id / "trace.json")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    try:
+        with connect(paths) as conn:
+            insert_event(conn, event(run_id, "json.exported", "Exported run as JSON trace", {"path": str(target.relative_to(paths.root)) if target.is_relative_to(paths.root) else str(target)}))
+    except Exception:
+        pass
     return target
 
 
@@ -354,7 +409,11 @@ def cmd_selftest(args: list[str]) -> int:
         record("run_saved", run is not None, result.run_id)
         changed_paths = [row["path"] for row in changes]
         record("captured_app_py_change", "app.py" in changed_paths, ", ".join(changed_paths) or "no changes")
-        record("events_saved", len(events) >= 2, f"events={len(events)}")
+        event_kinds = {row["kind"] for row in events}
+        record("events_saved", len(events) >= 8, f"events={len(events)}")
+        record("timeline_has_stdout_chunk", "stdout.chunk" in event_kinds, ", ".join(sorted(event_kinds)))
+        record("timeline_has_file_change", "file.changed" in event_kinds, ", ".join(sorted(event_kinds)))
+        record("timeline_has_diff_capture", "git.diff.captured" in event_kinds, ", ".join(sorted(event_kinds)))
 
         patch = result.patch_path.read_text(encoding="utf-8", errors="replace")
         record("patch_contains_diff", '-print("before")' in patch and '+print("after")' in patch, "patch.diff")
@@ -653,6 +712,7 @@ Usage:
   traceforge run [--live] [--shell] [--no-propagate-exit] -- <command>
   traceforge list [--limit 20]
   traceforge show <run_id>
+  traceforge timeline <run_id> [--json]
   traceforge report <run_id>
   traceforge open [run_id]
   traceforge diff <run_a> <run_b>
@@ -665,6 +725,7 @@ Examples:
   traceforge run -- python hello.py
   traceforge run --live -- npm test
   traceforge run --shell -- "npm test && npm run lint"
+  traceforge timeline <run_id>
   traceforge dashboard
 
 Without installing:

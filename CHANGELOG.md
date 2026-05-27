@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0
+
+- Added fine-grained run timeline events: command start, security check, Git snapshots, stdout/stderr chunks, process exit, artifact writes, Git diff capture, file changes, report generation, and JSON export.
+- Added `traceforge timeline <run_id>` for inspecting replay events from the CLI.
+- Dashboard now displays event counts, richer timeline rows, event kind badges, offsets, and data previews.
+- Dashboard run list now includes event counts for each run.
+- `selftest` now verifies stdout chunk, file change, and Git diff capture timeline events.
+- Updated package version to 0.7.0.
+
 ## 0.6.0
 
 - Reworked README into a GitHub-ready project landing page with clearer positioning, Quick Start, dashboard workflow, architecture, roadmap, and resume description.

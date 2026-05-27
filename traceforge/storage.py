@@ -36,6 +36,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "max_stderr_chars": 12000,
         "max_diff_chars": 30000,
     },
+    "timeline": {
+        "max_output_chunk_events": 80,
+        "max_output_chunk_chars": 600,
+    },
 }
 
 
@@ -196,9 +200,20 @@ def insert_run(conn: sqlite3.Connection, run: dict[str, Any]) -> None:
 
 
 def insert_events(conn: sqlite3.Connection, events: Iterable[dict[str, Any]]) -> None:
+    items = list(events)
+    if not items:
+        return
     conn.executemany(
         "INSERT INTO events (run_id, ts, kind, message, data) VALUES (:run_id, :ts, :kind, :message, :data)",
-        list(events),
+        items,
+    )
+    conn.commit()
+
+
+def insert_event(conn: sqlite3.Connection, event: dict[str, Any]) -> None:
+    conn.execute(
+        "INSERT INTO events (run_id, ts, kind, message, data) VALUES (:run_id, :ts, :kind, :message, :data)",
+        event,
     )
     conn.commit()
 

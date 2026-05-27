@@ -59,13 +59,17 @@ def run_command(
 ) -> RunResult:
     """Run a command and record it as a TraceForge run.
 
-    Public-facing behavior:
-    - By default, commands are executed without a shell, which avoids Windows quoting bugs.
-    - Use shell=True only when the user explicitly needs shell features such as pipes or redirects.
-    - stdout/stderr can be streamed live while still being captured to files.
+    v0.7 upgrades the run from a simple final result into a replayable timeline:
+    command start, security check, stdout/stderr chunks, process exit, artifact
+    writes, Git diff capture, changed files, and security warnings are all saved
+    as structured events.
     """
     paths = init_workspace(cwd)
     config = load_config(paths)
+    timeline_config = config.get("timeline", {})
+    max_output_events = int(timeline_config.get("max_output_chunk_events", 80))
+    max_output_chars = int(timeline_config.get("max_output_chunk_chars", 600))
+
     command_text = display_command(command)
     decision = inspect_command(command_text, config)
     if not decision.allowed:
@@ -81,10 +85,19 @@ def run_command(
 
     before = git_utils.snapshot(paths.root)
     events: list[dict[str, Any]] = []
+    output_event_count = 0
+    event_lock = threading.Lock()
 
     started_at = utc_now()
     start_monotonic = time.monotonic()
-    events.append(event(run_id, "run.started", f"Started command: {command_text}", {
+
+    def add(kind: str, message: str, data: dict[str, Any] | None = None) -> None:
+        payload = dict(data or {})
+        payload.setdefault("offset_ms", int((time.monotonic() - start_monotonic) * 1000))
+        with event_lock:
+            events.append(event(run_id, kind, message, payload))
+
+    add("run.started", f"Started command: {command_text}", {
         "cwd": str(paths.root),
         "platform": platform.platform(),
         "python": platform.python_version(),
@@ -92,7 +105,14 @@ def run_command(
         "security_notes": decision.notes,
         "live": live,
         "shell": shell,
-    }))
+    })
+    add("command.started", command_text, {"argv": list(command) if not isinstance(command, str) else command_text, "shell": shell})
+    add("security.checked", "Command security policy checked", {"allowed": decision.allowed, "notes": decision.notes})
+    add("git.snapshot.before", "Captured Git snapshot before command", {
+        "commit": before.commit,
+        "status": before.status,
+        "dirty": bool(before.status.strip()),
+    })
 
     proc_args: str | Sequence[str]
     if shell:
@@ -100,11 +120,6 @@ def run_command(
     else:
         proc_args = command if not isinstance(command, str) else _split_for_shellless(command)
 
-    # Public dashboard users may run TraceForge from messy Windows environments.
-    # subprocess on Windows is strict: argv, cwd, and environment entries must be
-    # plain strings. Normalize everything here so a bad environment value or a
-    # PathLike object cannot crash the dashboard with a cryptic TypeError such as
-    # "data must be str, not NoneType".
     proc_args = _normalize_popen_args(proc_args, shell=shell)
 
     proc = subprocess.Popen(
@@ -123,10 +138,24 @@ def run_command(
     stdout_chunks: list[str] = []
     stderr_chunks: list[str] = []
 
-    def read_stream(stream: Any, chunks: list[str], target: Any, prefix: str = "") -> None:
+    def read_stream(stream: Any, chunks: list[str], target: Any, stream_name: str, prefix: str = "") -> None:
+        nonlocal output_event_count
         try:
             for line in iter(stream.readline, ""):
                 chunks.append(line)
+                stripped = line.rstrip("\r\n")
+                if stripped:
+                    with event_lock:
+                        can_record = output_event_count < max_output_events
+                        if can_record:
+                            output_event_count += 1
+                    if can_record:
+                        preview = stripped[:max_output_chars]
+                        add(f"{stream_name}.chunk", preview, {
+                            "stream": stream_name,
+                            "chars": len(stripped),
+                            "truncated": len(stripped) > max_output_chars,
+                        })
                 if live:
                     if prefix:
                         target.write(prefix)
@@ -138,8 +167,8 @@ def run_command(
             except Exception:
                 pass
 
-    stdout_thread = threading.Thread(target=read_stream, args=(proc.stdout, stdout_chunks, sys.stdout, ""), daemon=True)
-    stderr_thread = threading.Thread(target=read_stream, args=(proc.stderr, stderr_chunks, sys.stderr, ""), daemon=True)
+    stdout_thread = threading.Thread(target=read_stream, args=(proc.stdout, stdout_chunks, sys.stdout, "stdout", ""), daemon=True)
+    stderr_thread = threading.Thread(target=read_stream, args=(proc.stderr, stderr_chunks, sys.stderr, "stderr", ""), daemon=True)
     stdout_thread.start()
     stderr_thread.start()
     exit_code = proc.wait()
@@ -154,33 +183,55 @@ def run_command(
     stdout_path.write_text(stdout, encoding="utf-8", errors="replace")
     stderr_path.write_text(stderr, encoding="utf-8", errors="replace")
 
-    after = git_utils.snapshot(paths.root)
-    patch = git_utils.diff(paths.root)
-    patch_path.write_text(patch, encoding="utf-8", errors="replace")
-    stat = git_utils.diff_stat(paths.root)
-
-    file_changes = git_utils.changed_files_after(before.status, after.status)
-    changed_paths = [path for _, path in file_changes]
-    file_risk_notes = inspect_changed_files(changed_paths, config)
-    all_risk_notes = [*decision.notes, *file_risk_notes]
-    risk_level = "high" if all_risk_notes else "low"
-
-    events.append(event(run_id, "process.exited", f"Command exited with code {exit_code}", {
+    add("process.exited", f"Command exited with code {exit_code}", {
         "exit_code": exit_code,
         "duration_ms": duration_ms,
         "stdout_bytes": len(stdout.encode("utf-8", errors="replace")),
         "stderr_bytes": len(stderr.encode("utf-8", errors="replace")),
         "stdout_lines": len(stdout.splitlines()),
         "stderr_lines": len(stderr.splitlines()),
-    }))
-    if file_changes:
-        events.append(event(run_id, "git.changed", f"Detected {len(file_changes)} changed file(s)", {
-            "files": [{"status": status, "path": path} for status, path in file_changes],
-        }))
+    })
+    add("artifact.written", "Captured stdout and stderr artifacts", {
+        "stdout_path": str(stdout_path.relative_to(paths.root)),
+        "stderr_path": str(stderr_path.relative_to(paths.root)),
+    })
+
+    after = git_utils.snapshot(paths.root)
+    add("git.snapshot.after", "Captured Git snapshot after command", {
+        "commit": after.commit,
+        "status": after.status,
+        "dirty": bool(after.status.strip()),
+    })
+
+    patch = git_utils.diff(paths.root)
+    patch_path.write_text(patch, encoding="utf-8", errors="replace")
+    stat = git_utils.diff_stat(paths.root)
+
+    file_changes = git_utils.changed_files_after(before.status, after.status)
+    add("git.diff.captured", f"Captured Git diff with {len(file_changes)} changed file(s)", {
+        "patch_path": str(patch_path.relative_to(paths.root)),
+        "diff_stat": stat,
+        "changed_files_count": len(file_changes),
+    })
+
+    for status, file_path in file_changes:
+        add("file.changed", f"{status} {file_path}", {"status": status, "path": file_path})
+
+    changed_paths = [path for _, path in file_changes]
+    file_risk_notes = inspect_changed_files(changed_paths, config)
+    all_risk_notes = [*decision.notes, *file_risk_notes]
+    risk_level = "high" if all_risk_notes else "low"
+
     if all_risk_notes:
-        events.append(event(run_id, "security.warning", "Security policy produced warning(s)", {
-            "notes": all_risk_notes,
-        }))
+        add("security.warning", "Security policy produced warning(s)", {"notes": all_risk_notes})
+
+    add("run.finished", f"Run finished in {duration_ms} ms", {
+        "exit_code": exit_code,
+        "duration_ms": duration_ms,
+        "risk_level": risk_level,
+        "changed_files_count": len(file_changes),
+        "event_count": len(events) + 1,
+    })
 
     run_record = {
         "id": run_id,
@@ -228,7 +279,6 @@ def _split_for_shellless(command: str) -> list[str]:
     return shlex.split(command, posix=os.name != "nt")
 
 
-
 def _normalize_popen_args(proc_args: str | Sequence[str], *, shell: bool) -> str | list[str]:
     if shell:
         if proc_args is None:
@@ -257,6 +307,7 @@ def _safe_environ() -> dict[str, str]:
     # errors="replace", so TraceForge should never crash on undecodable bytes.
     env.setdefault("PYTHONIOENCODING", "utf-8:replace")
     return env
+
 
 def event(run_id: str, kind: str, message: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
