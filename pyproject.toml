@@ -1,0 +1,21 @@
+[project]
+name = "traceforge"
+version = "0.2.1"
+description = "A black-box recorder for AI coding agents and shell commands."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "TraceForge Contributors" }]
+keywords = ["ai-agent", "debugging", "devtools", "cli", "git", "trace", "ai-agent", "observability"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Environment :: Console",
+  "Topic :: Software Development :: Debuggers",
+]
+
+[project.scripts]
+traceforge = "traceforge.cli:main"
+
+[tool.setuptools]
+packages = ["traceforge"]
