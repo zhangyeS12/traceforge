@@ -511,6 +511,7 @@ async function loadRuns({keepSelection=false} = {}) {
   renderSummary();
   renderFilters();
   renderRuns();
+  renderCompareOptions();
   if (!keepSelection && !state.selected && state.runs.length) selectRun(state.runs[0].id);
 }
 
@@ -563,12 +564,22 @@ function renderRuns() {
 
 
 function renderCompareOptions() {
-  const opts = state.runs.map(r => `<option value="${esc(r.id)}">${esc(short(r.id, 18))} — ${esc(short(r.command, 42))}</option>`).join('');
-  $('compareA').innerHTML = opts || '<option>No runs</option>';
-  $('compareB').innerHTML = opts || '<option>No runs</option>';
+  const options = state.runs.map((r, idx) => `<option value="${esc(r.id)}">${idx + 1}. ${esc(short(r.id, 18))} — ${esc(short(r.command, 42))}</option>`).join('');
+  const empty = '<option value="">No runs available</option>';
+  $('compareA').innerHTML = options || empty;
+  $('compareB').innerHTML = options || empty;
+  $('compareA').disabled = state.runs.length < 1;
+  $('compareB').disabled = state.runs.length < 2;
+  $('compareBtn').disabled = state.runs.length < 2;
   if (state.runs[0]) $('compareA').value = state.runs[0].id;
   if (state.runs[1]) $('compareB').value = state.runs[1].id;
-  else if (state.runs[0]) $('compareB').value = state.runs[0].id;
+  if (state.runs.length < 2) {
+    $('compareResult').className = 'status-bar warn';
+    $('compareResult').textContent = state.runs.length === 0 ? 'Record at least two runs to compare them.' : 'Record one more run to enable comparison.';
+  } else if (!$('compareResult').textContent.trim()) {
+    $('compareResult').className = 'status-bar';
+    $('compareResult').textContent = 'Select two runs and click Compare.';
+  }
 }
 
 async function compareSelectedRuns() {

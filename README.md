@@ -5,7 +5,7 @@
 TraceForge records what actually happened during a coding-agent or shell-command run: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, run comparisons, reports, and JSON traces. It also ships with a local browser dashboard so you can replay and inspect a run without uploading your code anywhere.
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-0.9.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.9.1-blue">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="status" src="https://img.shields.io/badge/status-local--first_devtool-purple">

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0
+## 0.9.1
 
 - Added `traceforge risk <run_id>` with JSON output.
 - Added security risk reports for risky commands, sensitive-looking files, dependency files, CI workflow files, broad changes, and possible secret material in patches.
