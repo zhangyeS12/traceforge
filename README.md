@@ -36,7 +36,7 @@ traceforge dashboard
 
 It shows run metrics, a searchable run list, command details, stdout, stderr, patch diff, changed files, timeline events, and full JSON.
 
-> Screenshot placeholder: after uploading this repository to GitHub, add `docs/assets/dashboard.png` here. The v0.6 package already includes a `docs/demo-script.md` with a reproducible scenario for creating a clean screenshot.
+![TraceForge dashboard](docs/assets/dashboard.png)
 
 ## Core features
 
