@@ -302,3 +302,16 @@ python modify_hello.py
 ```
 
 TraceForge will run it locally, record stdout/stderr, capture Git diff, refresh the run list, and open the new run detail automatically.
+
+## Public-readiness checks
+
+TraceForge includes two commands that are useful before publishing or debugging user environments:
+
+```bash
+traceforge selftest
+traceforge release-check
+traceforge release-check --zip traceforge_v0_5.zip
+```
+
+`selftest` creates a temporary Git project and verifies the full record → diff → report → JSON flow.
+`release-check` catches packaging mistakes before a zip or release is shared.

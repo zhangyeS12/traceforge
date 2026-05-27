@@ -7,7 +7,10 @@ import platform
 import shutil
 import subprocess
 import sys
+import tempfile
+import tomllib
 import webbrowser
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +57,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_export(argv[1:])
     if cmd == "doctor":
         return cmd_doctor(argv[1:])
+    if cmd == "selftest":
+        return cmd_selftest(argv[1:])
+    if cmd in {"release-check", "release_check"}:
+        return cmd_release_check(argv[1:])
     if cmd in {"dashboard", "ui"}:
         return cmd_dashboard(argv[1:])
     if cmd == "clean":
@@ -222,13 +229,27 @@ def cmd_export(args: list[str]) -> int:
     ns = parser.parse_args(args)
 
     paths = init_workspace()
+    try:
+        out = export_run(paths, ns.run_id, ns.out)
+    except KeyError:
+        print(f"Run not found: {ns.run_id}")
+        return 1
+    print(out)
+    return 0
+
+
+def export_run(paths: Any, run_id: str, out: Path | None = None) -> Path:
+    """Export one run as a stable JSON artifact.
+
+    Kept as a helper so both `traceforge export` and `traceforge selftest`
+    exercise the same implementation.
+    """
     with connect(paths) as conn:
-        run = get_run(conn, ns.run_id)
+        run = get_run(conn, run_id)
         if run is None:
-            print(f"Run not found: {ns.run_id}")
-            return 1
-        events = get_events(conn, ns.run_id)
-        changes = get_file_changes(conn, ns.run_id)
+            raise KeyError(run_id)
+        events = get_events(conn, run_id)
+        changes = get_file_changes(conn, run_id)
 
     def read_rel(rel_path: str | None) -> str:
         if not rel_path:
@@ -247,11 +268,10 @@ def cmd_export(args: list[str]) -> int:
             "patch": read_rel(run["patch_path"]),
         },
     }
-    out = ns.out or (paths.runs_dir / ns.run_id / "trace.json")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(out)
-    return 0
+    target = out or (paths.runs_dir / run_id / "trace.json")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return target
 
 
 def cmd_doctor(args: list[str]) -> int:
@@ -284,6 +304,211 @@ def cmd_doctor(args: list[str]) -> int:
     return 0 if ok else 1
 
 
+
+
+def cmd_selftest(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="traceforge selftest", description="Run an end-to-end TraceForge smoke test in a temporary Git project.")
+    parser.add_argument("--keep-temp", action="store_true", help="keep the temporary project for debugging")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    ns = parser.parse_args(args)
+
+    results: list[dict[str, Any]] = []
+    root = Path(tempfile.mkdtemp(prefix="traceforge-selftest-")).resolve()
+
+    def record(name: str, ok: bool, detail: str = "") -> None:
+        results.append({"name": name, "ok": ok, "detail": detail})
+
+    try:
+        record("create_temp_project", root.exists(), str(root))
+        (root / "app.py").write_text('print("before")\n', encoding="utf-8")
+        (root / "modify_app.py").write_text(
+            'from pathlib import Path\n'
+            'Path("app.py").write_text(\'print("after")\\n\', encoding="utf-8")\n'
+            'print("app.py modified")\n',
+            encoding="utf-8",
+        )
+
+        git = shutil.which("git")
+        record("git_available", bool(git), git or "git not found")
+        if not git:
+            return _finish_selftest(results, ns.json, root, ns.keep_temp)
+
+        _quiet([git, "init"], cwd=root)
+        _quiet([git, "config", "user.name", "TraceForge Selftest"], cwd=root)
+        _quiet([git, "config", "user.email", "selftest@example.invalid"], cwd=root)
+        _quiet([git, "add", "."], cwd=root)
+        commit = _quiet([git, "commit", "-m", "init"], cwd=root)
+        record("initial_commit", commit.returncode == 0, (commit.stderr or commit.stdout).strip())
+
+        paths = init_workspace(root)
+        record("workspace_initialized", paths.db_path.exists(), str(paths.db_path))
+
+        result = run_command([sys.executable, "modify_app.py"], cwd=root, live=False, shell=False)
+        record("command_exit_zero", result.exit_code == 0, f"exit={result.exit_code}, run_id={result.run_id}")
+        record("artifacts_exist", result.stdout_path.exists() and result.stderr_path.exists() and result.patch_path.exists(), str(result.stdout_path.parent))
+
+        with connect(paths) as conn:
+            run = get_run(conn, result.run_id)
+            changes = get_file_changes(conn, result.run_id)
+            events = get_events(conn, result.run_id)
+        record("run_saved", run is not None, result.run_id)
+        changed_paths = [row["path"] for row in changes]
+        record("captured_app_py_change", "app.py" in changed_paths, ", ".join(changed_paths) or "no changes")
+        record("events_saved", len(events) >= 2, f"events={len(events)}")
+
+        patch = result.patch_path.read_text(encoding="utf-8", errors="replace")
+        record("patch_contains_diff", '-print("before")' in patch and '+print("after")' in patch, "patch.diff")
+
+        report_path = generate_report(paths, result.run_id)
+        generate_index(paths)
+        record("report_generated", report_path.exists(), str(report_path))
+
+        trace_path = export_run(paths, result.run_id)
+        trace = json.loads(trace_path.read_text(encoding="utf-8"))
+        record("json_export_generated", trace.get("run", {}).get("id") == result.run_id, str(trace_path))
+
+        status = _quiet([git, "status", "--porcelain=v1"], cwd=root)
+        record("git_status_detects_change", "app.py" in status.stdout, status.stdout.strip())
+    finally:
+        if not ns.keep_temp:
+            shutil.rmtree(root, ignore_errors=True)
+
+    return _finish_selftest(results, ns.json, root, ns.keep_temp)
+
+
+def _finish_selftest(results: list[dict[str, Any]], as_json: bool, root: Path, keep_temp: bool) -> int:
+    ok = all(item["ok"] for item in results)
+    if as_json:
+        print(json.dumps({"ok": ok, "temp_project": str(root), "kept": keep_temp, "checks": results}, indent=2, ensure_ascii=False))
+    else:
+        print("TraceForge selftest")
+        for item in results:
+            mark = "OK" if item["ok"] else "FAIL"
+            print(f"[{mark:4}] {item['name']:<28} {item['detail']}")
+        print("\nResult:", "PASS" if ok else "FAIL")
+        if keep_temp:
+            print(f"Temporary project kept at: {root}")
+    return 0 if ok else 1
+
+
+def cmd_release_check(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="traceforge release-check", description="Validate the local source tree or a release zip before publishing.")
+    parser.add_argument("--zip", dest="zip_path", type=Path, default=None, help="validate a release zip file")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    ns = parser.parse_args(args)
+
+    checks = _check_release_zip(ns.zip_path) if ns.zip_path else _check_release_tree(Path.cwd())
+    ok = all(item["ok"] for item in checks)
+
+    if ns.json:
+        print(json.dumps({"ok": ok, "checks": checks}, indent=2, ensure_ascii=False))
+    else:
+        title = f"TraceForge release-check ({ns.zip_path})" if ns.zip_path else "TraceForge release-check"
+        print(title)
+        for item in checks:
+            mark = "OK" if item["ok"] else "FAIL"
+            print(f"[{mark:4}] {item['name']:<28} {item['detail']}")
+        print("\nResult:", "PASS" if ok else "FAIL")
+    return 0 if ok else 1
+
+
+def _check_release_tree(root: Path) -> list[dict[str, Any]]:
+    required = [
+        "pyproject.toml",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "traceforge/__init__.py",
+        "traceforge/cli.py",
+        "traceforge/core.py",
+        "traceforge/storage.py",
+        "traceforge/server.py",
+    ]
+    checks: list[dict[str, Any]] = []
+    for rel in required:
+        checks.append({"name": f"exists:{rel}", "ok": (root / rel).exists(), "detail": str(root / rel)})
+
+    pyproject = root / "pyproject.toml"
+    init_py = root / "traceforge" / "__init__.py"
+    project_version = _read_pyproject_version(pyproject) if pyproject.exists() else None
+    package_version = _read_init_version(init_py) if init_py.exists() else None
+    checks.append({"name": "version_consistency", "ok": bool(project_version and project_version == package_version == __version__), "detail": f"pyproject={project_version}, package={package_version}, runtime={__version__}"})
+    checks.append({"name": "working_directory", "ok": (root / "pyproject.toml").exists() and (root / "traceforge").is_dir(), "detail": str(root)})
+    return checks
+
+
+def _check_release_zip(zip_path: Path) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    checks.append({"name": "zip_exists", "ok": zip_path.exists(), "detail": str(zip_path)})
+    if not zip_path.exists():
+        return checks
+
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            names = [name for name in zf.namelist() if name and not name.endswith("/")]
+            top_levels = {name.split("/", 1)[0] for name in names}
+            expected_prefix = "traceforge/"
+            checks.append({"name": "single_top_level_dir", "ok": top_levels == {"traceforge"}, "detail": ", ".join(sorted(top_levels))})
+            required = [
+                "traceforge/pyproject.toml",
+                "traceforge/README.md",
+                "traceforge/LICENSE",
+                "traceforge/CHANGELOG.md",
+                "traceforge/traceforge/__init__.py",
+                "traceforge/traceforge/cli.py",
+                "traceforge/traceforge/core.py",
+                "traceforge/traceforge/server.py",
+            ]
+            name_set = set(names)
+            for rel in required:
+                checks.append({"name": f"zip_has:{rel}", "ok": rel in name_set, "detail": rel})
+
+            py_version = None
+            init_version = None
+            if "traceforge/pyproject.toml" in name_set:
+                py_data = tomllib.loads(zf.read("traceforge/pyproject.toml").decode("utf-8", errors="replace"))
+                py_version = py_data.get("project", {}).get("version")
+            if "traceforge/traceforge/__init__.py" in name_set:
+                init_version = _parse_version_text(zf.read("traceforge/traceforge/__init__.py").decode("utf-8", errors="replace"))
+            checks.append({"name": "zip_version_consistency", "ok": bool(py_version and py_version == init_version), "detail": f"pyproject={py_version}, package={init_version}"})
+    except zipfile.BadZipFile as exc:
+        checks.append({"name": "zip_readable", "ok": False, "detail": str(exc)})
+    return checks
+
+
+def _quiet(cmd: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        cmd,
+        cwd=cwd,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+
+def _read_pyproject_version(path: Path) -> str | None:
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        return data.get("project", {}).get("version")
+    except Exception:
+        return None
+
+
+def _read_init_version(path: Path) -> str | None:
+    try:
+        return _parse_version_text(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _parse_version_text(text: str) -> str | None:
+    for line in text.splitlines():
+        if line.strip().startswith("__version__") and "=" in line:
+            return line.split("=", 1)[1].strip().strip('"\'')
+    return None
 
 def cmd_dashboard(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="traceforge dashboard")
@@ -422,6 +647,8 @@ TraceForge {__version__} — black-box recorder for AI coding agents and shell c
 Usage:
   traceforge init
   traceforge doctor [--json]
+  traceforge selftest [--keep-temp] [--json]
+  traceforge release-check [--zip path] [--json]
   traceforge dashboard [--host 127.0.0.1] [--port 8787] [--no-open]
   traceforge run [--live] [--shell] [--no-propagate-exit] -- <command>
   traceforge list [--limit 20]

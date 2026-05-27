@@ -1,3 +1,11 @@
+
+## 0.5.0
+
+- Added `traceforge selftest`, an end-to-end smoke test that creates a temporary Git project, records a command, verifies Git diff capture, generates an HTML report, and exports JSON.
+- Added `traceforge release-check` for validating local source trees and release zip layout before publishing.
+- Added JSON output for selftest and release-check so CI can consume results.
+- Added CI workflow that runs release-check and selftest on push and pull requests.
+
 ## 0.4.2
 
 - Fixed dashboard command runner startup failures on Windows by normalizing subprocess argv, cwd, and environment values before calling `subprocess.Popen`.
