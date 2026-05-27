@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import git_utils
+from .report import generate_index, generate_report
 from .security import inspect_changed_files, inspect_command
 from .storage import connect, init_workspace, insert_events, insert_file_changes, insert_run, load_config
 
@@ -225,13 +226,9 @@ def run_command(
     if all_risk_notes:
         add("security.warning", "Security policy produced warning(s)", {"notes": all_risk_notes})
 
-    add("run.finished", f"Run finished in {duration_ms} ms", {
-        "exit_code": exit_code,
-        "duration_ms": duration_ms,
-        "risk_level": risk_level,
-        "changed_files_count": len(file_changes),
-        "event_count": len(events) + 1,
-    })
+    # `run.finished` is intentionally inserted after `report.generated` below.
+    # A black-box timeline should end only after all artifacts are persisted and
+    # the replay report has been generated.
 
     run_record = {
         "id": run_id,
@@ -260,6 +257,25 @@ def run_command(
             {"run_id": run_id, "status": status, "path": file_path}
             for status, file_path in file_changes
         ])
+
+    report_path = paths.reports_dir / f"{run_id}.html"
+    with connect(paths) as conn:
+        insert_events(conn, [
+            event(run_id, "report.generated", "Generated HTML report", {
+                "report_path": str(report_path.relative_to(paths.root)),
+                "offset_ms": int((time.monotonic() - start_monotonic) * 1000),
+            }),
+            event(run_id, "run.finished", f"Run finished in {duration_ms} ms", {
+                "exit_code": exit_code,
+                "duration_ms": duration_ms,
+                "risk_level": risk_level,
+                "changed_files_count": len(file_changes),
+                "event_count": len(events) + 2,
+                "offset_ms": int((time.monotonic() - start_monotonic) * 1000),
+            }),
+        ])
+    generate_report(paths, run_id)
+    generate_index(paths)
 
     return RunResult(
         run_id=run_id,

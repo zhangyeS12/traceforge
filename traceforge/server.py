@@ -9,9 +9,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
-from .core import event, run_command
-from .report import generate_index, generate_report, read_limited
-from .storage import Paths, connect, get_events, get_file_changes, get_run, init_workspace, insert_event, list_runs, load_config
+from .core import run_command
+from .report import read_limited
+from .storage import Paths, connect, get_events, get_file_changes, get_run, init_workspace, list_runs, load_config
 
 
 class DashboardServer:
@@ -217,10 +217,6 @@ def api_create_run(paths: Paths, body: dict[str, Any]) -> tuple[dict[str, Any], 
     except (OSError, TypeError, ValueError) as exc:
         return {"error": exc.__class__.__name__, "message": str(exc)}, 400
 
-    report_path = generate_report(paths, result.run_id)
-    generate_index(paths)
-    with connect(paths) as conn:
-        insert_event(conn, event(result.run_id, "report.generated", "Generated HTML report", {"report_path": str(report_path.relative_to(paths.root))}))
     detail = api_run_detail(paths, result.run_id)
     return {"ok": True, "run_id": result.run_id, "detail": detail}, 201
 
@@ -371,6 +367,7 @@ def render_dashboard_html() -> str:
     table { width: 100%; border-collapse: collapse; }
     th, td { border-bottom: 1px solid var(--line-soft); padding: 9px 10px; text-align: left; vertical-align: top; }
     th { color: var(--muted); font-size: 12px; }
+    .timeline-section { background: rgba(142,181,255,.035); }
     .timeline { list-style: none; padding: 0; margin: 0; }
     .timeline li { padding: 0 0 14px 22px; border-left: 1px solid var(--line); position: relative; }
     .timeline li::before { content: ''; position: absolute; left: -5px; top: 5px; width: 9px; height: 9px; border-radius: 99px; background: var(--accent); box-shadow: 0 0 0 4px rgba(142,181,255,.12); }
@@ -575,6 +572,10 @@ function renderDetail() {
       <h3>Command</h3>
       <div class="command"><code>${esc(r.command)}</code></div>
     </div>
+    <div class="section timeline-section">
+      <h3>Timeline</h3>
+      <ol class="timeline">${events.map(renderEvent).join('') || '<li>No events recorded.</li>'}</ol>
+    </div>
     <div class="section">
       <h3>Artifacts</h3>
       <div class="tabs">
@@ -589,10 +590,6 @@ function renderDetail() {
     <div class="section">
       <h3>Changed Files</h3>
       ${renderFiles(files)}
-    </div>
-    <div class="section">
-      <h3>Timeline</h3>
-      <ol class="timeline">${events.map(renderEvent).join('') || '<li>No events recorded.</li>'}</ol>
     </div>
     <div class="section">
       <h3>Security Notes</h3>

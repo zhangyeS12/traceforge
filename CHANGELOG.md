@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1
+
+- Moved `report.generated` before `run.finished` so a run timeline now ends only after replay artifacts are ready.
+- `traceforge run` and dashboard-created runs now rely on the same core report-generation path, avoiding duplicate timeline events.
+- Dashboard now places the Timeline section above Artifacts so the replay view is visible first.
+- `selftest` now verifies that report generation happens before run completion in the timeline.
+- Updated package version to 0.7.1.
+
 ## 0.7.0
 
 - Added fine-grained run timeline events: command start, security check, Git snapshots, stdout/stderr chunks, process exit, artifact writes, Git diff capture, file changes, report generation, and JSON export.
@@ -33,8 +41,6 @@
 ## 0.4.1
 
 - Fixed release archive layout so extracting to `C:\Projects` correctly updates `C:\Projects\traceforge`.
-
-# Changelog
 
 ## 0.4.0
 

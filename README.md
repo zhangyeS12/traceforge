@@ -5,7 +5,7 @@
 TraceForge records what actually happened during a coding-agent or shell-command run: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, reports, and JSON traces. It also ships with a local browser dashboard so you can replay and inspect a run without uploading your code anywhere.
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-0.7.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-0.7.1-blue">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="status" src="https://img.shields.io/badge/status-local--first_devtool-purple">
@@ -212,7 +212,7 @@ traceforge release-check
 Before sharing a zip release:
 
 ```bash
-traceforge release-check --zip traceforge_v0_7.zip
+traceforge release-check --zip traceforge_v0_7_1.zip
 ```
 
 These checks exist because real user environments are messy: Windows encodings, missing tools, broken PATH entries, stale dashboards, and packaging mistakes can all happen.

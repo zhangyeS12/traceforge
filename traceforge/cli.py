@@ -103,11 +103,7 @@ def cmd_run(args: list[str]) -> int:
         command = command_args
 
     result = run_command(command, live=ns.live, shell=ns.shell)
-    paths = paths_for()
-    report_path = generate_report(paths, result.run_id)
-    generate_index(paths)
-    with connect(paths) as conn:
-        insert_event(conn, event(result.run_id, "report.generated", "Generated HTML report", {"report_path": str(report_path.relative_to(paths.root))}))
+    report_path = paths_for().reports_dir / f"{result.run_id}.html"
     print(f"Run recorded: {result.run_id}")
     print(f"Exit code: {result.exit_code}")
     print(f"Duration: {result.duration_ms} ms")
@@ -414,6 +410,13 @@ def cmd_selftest(args: list[str]) -> int:
         record("timeline_has_stdout_chunk", "stdout.chunk" in event_kinds, ", ".join(sorted(event_kinds)))
         record("timeline_has_file_change", "file.changed" in event_kinds, ", ".join(sorted(event_kinds)))
         record("timeline_has_diff_capture", "git.diff.captured" in event_kinds, ", ".join(sorted(event_kinds)))
+        ordered_kinds = [row["kind"] for row in events]
+        if "report.generated" in ordered_kinds and "run.finished" in ordered_kinds:
+            report_i = ordered_kinds.index("report.generated")
+            finish_i = ordered_kinds.index("run.finished")
+            record("timeline_report_before_finish", report_i < finish_i, f"report={report_i}, finish={finish_i}")
+        else:
+            record("timeline_report_before_finish", False, ", ".join(ordered_kinds))
 
         patch = result.patch_path.read_text(encoding="utf-8", errors="replace")
         record("patch_contains_diff", '-print("before")' in patch and '+print("after")' in patch, "patch.diff")
