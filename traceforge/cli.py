@@ -18,6 +18,7 @@ from . import __version__
 from .compare import compare_runs
 from .core import event, run_command
 from .report import generate_index, generate_report
+from .risk import assess_run
 from .server import serve_dashboard
 from .storage import (
     connect,
@@ -53,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_timeline(argv[1:])
     if cmd == "compare":
         return cmd_compare(argv[1:])
+    if cmd == "risk":
+        return cmd_risk(argv[1:])
     if cmd == "report":
         return cmd_report(argv[1:])
     if cmd == "open":
@@ -299,6 +302,43 @@ def _print_file_bucket(title: str, files: list[str]) -> None:
         print(f"  {path}")
 
 
+
+def cmd_risk(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="traceforge risk", description="Generate a security risk report for a recorded run.")
+    parser.add_argument("run_id")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    ns = parser.parse_args(args)
+
+    paths = init_workspace()
+    payload = assess_run(paths, ns.run_id)
+    if payload is None:
+        print(f"Run not found: {ns.run_id}")
+        return 1
+
+    if ns.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+
+    print("TraceForge risk report")
+    print(f"Run: {payload['run_id']}")
+    print(f"Command: {payload.get('command')}")
+    print(f"Exit code: {payload.get('exit_code')}")
+    print(f"Risk level: {payload['risk_level']}")
+    summary = payload.get("summary", {})
+    print(f"Findings: total={summary.get('total', 0)} high={summary.get('high', 0)} medium={summary.get('medium', 0)} low={summary.get('low', 0)}")
+    findings = payload.get("findings", [])
+    if not findings:
+        print("No notable security findings.")
+    else:
+        print("Findings:")
+        for item in findings:
+            print(f"  [{item['severity'].upper():<6}] {item['rule']:<18} {item['title']}")
+            if item.get("detail"):
+                print(f"           {item['detail']}")
+    print(f"Recommendation: {payload.get('recommendation')}")
+    return 0
+
+
 def cmd_export(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="traceforge export")
     parser.add_argument("run_id")
@@ -464,6 +504,9 @@ def cmd_selftest(args: list[str]) -> int:
         compare_ok = bool(comparison and comparison["diff"]["changed_files_delta"] == 0 and comparison["run_a"]["metrics"]["event_count"] >= 1)
         record("compare_generated", compare_ok, "self-compare" if comparison else "missing comparison")
 
+        risk_payload = assess_run(paths, result.run_id)
+        record("risk_report_generated", bool(risk_payload and risk_payload["risk_level"] == "low"), risk_payload["risk_level"] if risk_payload else "missing risk report")
+
         status = _quiet([git, "status", "--porcelain=v1"], cwd=root)
         record("git_status_detects_change", "app.py" in status.stdout, status.stdout.strip())
     finally:
@@ -519,6 +562,7 @@ def _check_release_tree(root: Path) -> list[dict[str, Any]]:
         "traceforge/cli.py",
         "traceforge/core.py",
         "traceforge/compare.py",
+        "traceforge/risk.py",
         "traceforge/storage.py",
         "traceforge/server.py",
     ]
@@ -556,6 +600,7 @@ def _check_release_zip(zip_path: Path) -> list[dict[str, Any]]:
                 "traceforge/traceforge/cli.py",
                 "traceforge/traceforge/core.py",
                 "traceforge/traceforge/compare.py",
+                "traceforge/traceforge/risk.py",
                 "traceforge/traceforge/server.py",
             ]
             name_set = set(names)
@@ -754,6 +799,7 @@ Usage:
   traceforge show <run_id>
   traceforge timeline <run_id> [--json]
   traceforge compare <run_a> <run_b> [--json]
+  traceforge risk <run_id> [--json]
   traceforge report <run_id>
   traceforge open [run_id]
   traceforge diff <run_a> <run_b>   # alias of compare
@@ -768,6 +814,7 @@ Examples:
   traceforge run --shell -- "npm test && npm run lint"
   traceforge timeline <run_id>
   traceforge compare <run_a> <run_b>
+  traceforge risk <run_id>
   traceforge dashboard
 
 Without installing:

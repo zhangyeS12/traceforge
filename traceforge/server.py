@@ -12,6 +12,7 @@ from . import __version__
 from .compare import compare_runs
 from .core import run_command
 from .report import read_limited
+from .risk import assess_run
 from .storage import Paths, connect, get_events, get_file_changes, get_run, init_workspace, list_runs, load_config
 
 
@@ -91,6 +92,14 @@ def make_handler(paths: Paths) -> type[BaseHTTPRequestHandler]:
                     payload = api_compare(paths, run_a, run_b)
                     if payload is None:
                         self._send_json({"error": "run not found", "run_a": run_a, "run_b": run_b}, status=404)
+                    else:
+                        self._send_json(payload)
+                    return
+                if route.startswith("/api/risk/"):
+                    run_id = route.removeprefix("/api/risk/")
+                    payload = assess_run(paths, run_id)
+                    if payload is None:
+                        self._send_json({"error": "run not found", "run_id": run_id}, status=404)
                     else:
                         self._send_json(payload)
                     return
@@ -197,11 +206,13 @@ def api_run_detail(paths: Paths, run_id: str) -> dict[str, Any] | None:
     stdout = _read_artifact(paths, run_dict.get("stdout_path"), int(limits.get("max_stdout_chars", 12000)))
     stderr = _read_artifact(paths, run_dict.get("stderr_path"), int(limits.get("max_stderr_chars", 12000)))
     patch = _read_artifact(paths, run_dict.get("patch_path"), int(limits.get("max_diff_chars", 30000)))
+    risk_report = assess_run(paths, run_id)
     return {
         "schema_version": 1,
         "run": run_dict,
         "events": events,
         "file_changes": changes,
+        "risk_report": risk_report,
         "artifacts": {"stdout": stdout, "stderr": stderr, "patch": patch},
     }
 
@@ -330,7 +341,7 @@ def render_dashboard_html() -> str:
     .btn:hover:not(:disabled) { border-color: var(--accent); background: rgba(142,181,255,.10); transform: translateY(-1px); }
     .btn:disabled { opacity: .55; cursor: not-allowed; }
     .btn.primary { background: linear-gradient(135deg, rgba(142,181,255,.22), rgba(177,140,255,.18)); border-color: rgba(142,181,255,.55); }
-    .summary { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .summary { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
     .summary-card { background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.025)); border: 1px solid var(--line); border-radius: 18px; padding: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.18); }
     .summary-card span { display: block; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
     .summary-card strong { display: block; font-size: 24px; margin-top: 6px; letter-spacing: -.02em; }
@@ -407,6 +418,13 @@ def render_dashboard_html() -> str:
     .event-data { margin-top: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .error { color: var(--fail); padding: 14px 16px; }
     .notice { color: var(--muted); background: rgba(255,255,255,.035); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+    .risk-card { display: grid; grid-template-columns: 220px 1fr; gap: 14px; align-items: start; }
+    .risk-badge { border: 1px solid var(--line); border-radius: 18px; padding: 16px; background: var(--panel-3); }
+    .risk-badge strong { display: block; font-size: 28px; margin-top: 6px; }
+    .risk-high { color: var(--fail); } .risk-medium { color: var(--warn); } .risk-low { color: var(--ok); }
+    .finding { border: 1px solid var(--line-soft); border-radius: 14px; padding: 11px; margin-bottom: 9px; background: rgba(255,255,255,.025); }
+    .finding-top { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 5px; }
+    .sev { border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; font-size: 12px; text-transform: uppercase; }
     @media (max-width: 1120px) { .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); } .layout { grid-template-columns: 1fr; } .runs { max-height: 420px; } .runner-form, .compare-form { grid-template-columns: 1fr; } .compare-grid, .compare-files { grid-template-columns: 1fr; } }
     @media (max-width: 680px) { .app { padding: 14px; } header { flex-direction: column; align-items: flex-start; } .summary, .metrics { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 460px) { .summary, .metrics { grid-template-columns: 1fr; } }
@@ -482,6 +500,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const short = (s, n=14) => String(s ?? '').length > n ? String(s).slice(0,n) + '…' : String(s ?? '');
 const num = (v) => Number(v || 0);
+function riskCounts() { const high = state.runs.filter(r => (r.risk_level || 'low') === 'high').length; const med = state.runs.filter(r => (r.risk_level || 'low') === 'medium').length; return high + '/' + med; }
 
 async function loadRuns({keepSelection=false} = {}) {
   if (!keepSelection) $('runs').innerHTML = '<div class="empty">Loading runs...</div>';
@@ -504,7 +523,7 @@ function renderSummary() {
   const avg = total ? Math.round(state.runs.reduce((acc, r) => acc + num(r.duration_ms), 0) / total) : 0;
   const rate = total ? Math.round((success / total) * 100) + '%' : '—';
   $('summary').innerHTML = [
-    ['Total Runs', total], ['Success Rate', rate], ['Failed', failed], ['Changed Files', changed], ['Events', state.runs.reduce((acc, r) => acc + num(r.event_count), 0)], ['Risky Runs', risky], ['Avg Duration', avg + 'ms']
+    ['Total Runs', total], ['Success Rate', rate], ['Failed', failed], ['Changed Files', changed], ['Events', state.runs.reduce((acc, r) => acc + num(r.event_count), 0)], ['Risky Runs', risky], ['High/Medium', riskCounts(),], ['Avg Duration', avg + 'ms']
   ].map(([label, value]) => `<div class="summary-card"><span>${label}</span><strong>${value}</strong></div>`).join('');
 }
 
@@ -657,11 +676,15 @@ function renderDetail() {
       <div class="metric"><span>Duration</span><strong>${esc(r.duration_ms)}ms</strong></div>
       <div class="metric"><span>Changed Files</span><strong>${files.length}</strong></div>
       <div class="metric"><span>Events</span><strong>${events.length}</strong></div>
-      <div class="metric"><span>Risk</span><strong class="${r.risk_level === 'high' ? 'warn' : ''}">${esc(r.risk_level || 'low')}</strong></div>
+      <div class="metric"><span>Risk</span><strong class="risk-${esc(r.risk_level || 'low')}">${esc(r.risk_level || 'low')}</strong></div>
     </div>
     <div class="section">
       <h3>Command</h3>
       <div class="command"><code>${esc(r.command)}</code></div>
+    </div>
+    <div class="section">
+      <h3>Risk Report</h3>
+      ${renderRiskReport(d.risk_report)}
     </div>
     <div class="section timeline-section">
       <h3>Timeline</h3>
@@ -683,7 +706,7 @@ function renderDetail() {
       ${renderFiles(files)}
     </div>
     <div class="section">
-      <h3>Security Notes</h3>
+      <h3>Recorded Security Notes</h3>
       <ul>${notes.length ? notes.map(n => `<li>${esc(n)}</li>`).join('') : '<li>No security warnings.</li>'}</ul>
     </div>
   `;
@@ -734,6 +757,23 @@ function eventDataPreview(kind, data) {
   if (kind === 'process.exited') return `exit=${data.exit_code}; stdout_lines=${data.stdout_lines || 0}; stderr_lines=${data.stderr_lines || 0}`;
   if (kind === 'command.started') return data.shell ? 'shell=true' : 'shell=false';
   return '';
+}
+
+
+function renderRiskReport(report) {
+  if (!report) return '<div class="notice">No risk report available for this run.</div>';
+  const level = report.risk_level || 'low';
+  const summary = report.summary || {};
+  const findings = report.findings || [];
+  const findingHtml = findings.length ? findings.map(f => `<div class="finding">
+    <div class="finding-top"><span class="sev risk-${esc(f.severity || 'low')}">${esc(f.severity || 'low')}</span><code>${esc(f.rule || '')}</code></div>
+    <strong>${esc(f.title || '')}</strong>
+    ${f.detail ? `<div class="muted">${esc(f.detail)}</div>` : ''}
+  </div>`).join('') : '<div class="notice">No notable security findings were detected by the current rules.</div>';
+  return `<div class="risk-card">
+    <div class="risk-badge"><span class="muted">Risk level</span><strong class="risk-${esc(level)}">${esc(level)}</strong><div class="muted">high ${esc(summary.high || 0)} · medium ${esc(summary.medium || 0)} · low ${esc(summary.low || 0)}</div></div>
+    <div>${findingHtml}<p class="muted">${esc(report.recommendation || '')}</p></div>
+  </div>`;
 }
 
 function renderFiles(files) {

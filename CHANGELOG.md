@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0
+
+- Added `traceforge risk <run_id>` with JSON output.
+- Added security risk reports for risky commands, sensitive-looking files, dependency files, CI workflow files, broad changes, and possible secret material in patches.
+- Dashboard run detail now includes a Risk Report section.
+- Run recording now stores enhanced low/medium/high risk levels.
+- Selftest and release-check now cover the new risk module.
+
 ## 0.8.0
 
 - Added `traceforge compare <run_a> <run_b>` for comparing two recorded runs.

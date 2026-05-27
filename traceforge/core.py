@@ -15,6 +15,7 @@ from typing import Any, Sequence
 
 from . import git_utils
 from .report import generate_index, generate_report
+from .risk import assess_static
 from .security import inspect_changed_files, inspect_command
 from .storage import connect, init_workspace, insert_events, insert_file_changes, insert_run, load_config
 
@@ -221,10 +222,20 @@ def run_command(
     changed_paths = [path for _, path in file_changes]
     file_risk_notes = inspect_changed_files(changed_paths, config)
     all_risk_notes = [*decision.notes, *file_risk_notes]
-    risk_level = "high" if all_risk_notes else "low"
+    risk_report = assess_static(
+        command=command_text,
+        file_changes=file_changes,
+        patch=patch,
+        stdout=stdout,
+        stderr=stderr,
+        existing_notes=all_risk_notes,
+        config=config,
+    )
+    risk_level = risk_report["risk_level"]
+    risk_notes = [f"[{item['severity'].upper()}] {item['title']}" for item in risk_report.get("findings", [])]
 
-    if all_risk_notes:
-        add("security.warning", "Security policy produced warning(s)", {"notes": all_risk_notes})
+    if risk_notes:
+        add("security.warning", "Security risk report produced finding(s)", {"risk_level": risk_level, "findings": risk_report.get("findings", [])})
 
     # `run.finished` is intentionally inserted after `report.generated` below.
     # A black-box timeline should end only after all artifacts are persisted and
@@ -247,7 +258,7 @@ def run_command(
         "patch_path": str(patch_path.relative_to(paths.root)),
         "diff_stat": stat,
         "risk_level": risk_level,
-        "risk_notes": json.dumps(all_risk_notes, ensure_ascii=False),
+        "risk_notes": json.dumps(risk_notes, ensure_ascii=False),
     }
 
     with connect(paths) as conn:
