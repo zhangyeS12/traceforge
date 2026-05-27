@@ -1,67 +1,66 @@
 # TraceForge
 
-> **A local black-box recorder for command runs and AI coding agents.**
+> **Local black-box recorder for command runs and AI coding agents.**
 
-TraceForge records what actually happened during a coding-agent or shell-command run: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, run comparisons, reports, and JSON traces. It also ships with a local browser dashboard so you can replay and inspect a run without uploading your code anywhere.
+TraceForge records what actually happened during a coding-agent or shell-command run: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, security findings, run comparisons, HTML reports, and JSON traces. It also ships with a localhost dashboard so you can replay and inspect runs without uploading your code anywhere.
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-0.9.1-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.0--rc1-blue">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="status" src="https://img.shields.io/badge/status-local--first_devtool-purple">
+  <img alt="status" src="https://img.shields.io/badge/status-release--candidate-purple">
 </p>
 
 ---
 
 ## Why TraceForge?
 
-AI coding agents are powerful, but they are often hard to audit:
+AI coding agents are powerful, but they are still hard to audit:
 
 - What command did the agent run?
 - What exactly changed in the repository?
-- Which output or error caused the run to fail?
-- Did a risky command or sensitive file pattern appear?
-- Can the run be exported and attached to an issue or code review?
-- Can we reproduce and compare agent behavior later?
+- Which output or error happened before the patch?
+- Did the run touch dependency files, CI workflows, or sensitive-looking files?
+- Can two agent attempts be compared side by side?
+- Can a run be exported and attached to an issue or code review?
 
 TraceForge gives every run a local, reviewable trace.
 
 ## What it looks like
 
-The current dashboard is a local web UI started from your project directory:
+Start the dashboard from a project directory:
 
 ```bash
 traceforge dashboard
 ```
 
-It shows run metrics, a searchable run list, command details, stdout, stderr, patch diff, changed files, timeline events, and full JSON.
+It shows run metrics, searchable run history, command details, timeline events, risk report, stdout, stderr, patch diff, changed files, compare view, and full JSON.
 
 ![TraceForge dashboard](docs/assets/dashboard.png)
 
-## Core features
+## Install
 
-- **CLI recorder**: `traceforge run -- <command>` records one command run.
-- **Dashboard runner**: run commands directly from the browser dashboard.
-- **Replayable timeline**: records command start, stdout/stderr chunks, process exit, Git diff capture, file changes, report generation, and JSON export events.
-- **Run comparison**: compare two runs by exit code, duration, changed files, event count, patch size, and file overlap.
-- **Security risk report**: scan risky commands, sensitive-looking files, dependency/CI changes, large patches, and possible secret material.
-- **Live output**: `--live` streams stdout/stderr while still recording artifacts.
-- **Git diff capture**: records changed files, diff stat, and patch.
-- **Local SQLite store**: traces live under `.traceforge/` inside your project.
-- **HTML reports**: self-contained report pages for each run.
-- **JSON export**: `traceforge export <run_id>` creates machine-readable traces.
-- **Doctor checks**: `traceforge doctor` checks Python, Git, Node, Rust, workspace, and database.
-- **Selftest**: `traceforge selftest` creates a temporary Git repo and verifies the full record → diff → report → JSON flow.
-- **Release checks**: `traceforge release-check` validates local source trees and release zip layout.
-- **Security warnings**: configurable warnings for risky command substrings and sensitive file patterns.
-
-## Quick start
-
-Install from the repository root:
+TraceForge is currently a local-first Python package. Clone the repository and install it in editable mode:
 
 ```bash
+git clone https://github.com/zhangyeS12/traceforge.git
+cd traceforge
 python -m pip install -e .
+traceforge version
 ```
+
+Requirements:
+
+- Python 3.10+
+- Git
+- A Git repository for meaningful diff capture
+
+Optional tools checked by `traceforge doctor`:
+
+- Node / npm
+- Rust / Cargo
+
+## Quick start
 
 Initialize TraceForge in a Git project:
 
@@ -70,10 +69,10 @@ traceforge init
 traceforge doctor
 ```
 
-Create a small script:
+Create a simple script:
 
 ```bash
-python -c "open('hello.py', 'w').write('print(\"hello from traceforge\")\\n')"
+python -c "open('hello.py', 'w').write('print(\"hello from traceforge\")\n')"
 ```
 
 Record a command:
@@ -88,7 +87,7 @@ Open the dashboard:
 traceforge dashboard
 ```
 
-On Windows PowerShell, you can create the script like this:
+On Windows PowerShell:
 
 ```powershell
 Set-Content hello.py 'print("hello from traceforge")'
@@ -112,13 +111,27 @@ python modify_hello.py
 
 TraceForge will run it locally, record stdout/stderr, capture Git diff, refresh the run list, and open the new run detail automatically.
 
-The dashboard also has a **Compare runs** panel and a **Risk Report** section. Select two runs to compare outcomes, or inspect a single run to see security findings for risky commands, dependency changes, CI workflow changes, broad patches, and sensitive-looking files.
-
-The dashboard runs on localhost only by default:
+The dashboard runs on localhost by default:
 
 ```text
 http://127.0.0.1:8787
 ```
+
+## Core features
+
+- **CLI recorder**: `traceforge run -- <command>` records one command run.
+- **Dashboard runner**: run commands directly from the browser dashboard.
+- **Replayable timeline**: command start, stdout/stderr chunks, process exit, Git snapshots, diff capture, file changes, report generation, and run completion.
+- **Run comparison**: compare two runs by exit code, duration, changed files, event count, patch size, and file overlap.
+- **Security risk report**: scan risky commands, sensitive-looking files, dependency/CI changes, broad file changes, traceback output, and possible secret material.
+- **Live output**: `--live` streams stdout/stderr while still recording artifacts.
+- **Git diff capture**: records changed files, diff stat, and patch.
+- **Local SQLite store**: traces live under `.traceforge/` inside your project.
+- **HTML reports**: self-contained report pages for each run.
+- **JSON export**: `traceforge export <run_id>` creates machine-readable traces.
+- **Doctor checks**: `traceforge doctor` checks Python, Git, optional toolchains, workspace, and database.
+- **Selftest**: `traceforge selftest` creates a temporary Git repo and verifies the full record → diff → report → JSON → compare → risk flow.
+- **Release checks**: `traceforge release-check` validates local source trees and release zip layout.
 
 ## CLI reference
 
@@ -161,6 +174,43 @@ traceforge run --shell -- "npm test && npm run lint"
 
 In the dashboard, enable the `shell` checkbox for the same behavior.
 
+## Run comparison
+
+Compare two attempts:
+
+```bash
+traceforge compare <run_a> <run_b>
+```
+
+TraceForge compares:
+
+- exit code
+- duration
+- event count
+- changed file count
+- patch size
+- common files
+- files only changed in one run
+- status changes by file
+
+## Risk report
+
+Generate a security-oriented run report:
+
+```bash
+traceforge risk <run_id>
+```
+
+The risk report looks for:
+
+- risky command substrings
+- sensitive-looking file paths
+- dependency or package-management file changes
+- CI workflow changes
+- broad file changes
+- possible secret material in patches
+- traceback output in stderr
+
 ## Local data layout
 
 TraceForge writes local data to `.traceforge/`:
@@ -200,7 +250,7 @@ Git snapshot after + patch diff
         ↓
 SQLite trace storage
         ↓
-Timeline events + SQLite trace storage
+timeline events + risk assessment
         ↓
 HTML report / JSON export / dashboard API
 ```
@@ -218,10 +268,8 @@ traceforge release-check
 Before sharing a zip release:
 
 ```bash
-traceforge release-check --zip traceforge_v0_9.zip
+traceforge release-check --zip traceforge_v1_0_rc1.zip
 ```
-
-These checks exist because real user environments are messy: Windows encodings, missing tools, broken PATH entries, stale dashboards, and packaging mistakes can all happen.
 
 ## Roadmap
 
@@ -251,7 +299,7 @@ TraceForge should become the local observability layer for agentic coding: every
 
 ## Resume description
 
-> Built TraceForge, a local black-box recorder for AI coding agents and shell commands. Implemented a CLI and browser dashboard that capture subprocess output, Git patches, changed files, fine-grained timeline events, run comparison, runtime metadata, security warnings, SQLite traces, HTML replay reports, JSON exports, selftests, and release checks.
+> Built TraceForge, a local black-box recorder for AI coding agents and shell commands. Implemented a CLI and browser dashboard that capture subprocess output, Git patches, changed files, fine-grained timeline events, run comparison, runtime metadata, security findings, SQLite traces, HTML replay reports, JSON exports, selftests, release checks, and GitHub CI.
 
 ## Contributing
 
@@ -264,6 +312,10 @@ Good first contributions:
 - Add adapters for common coding agents.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for supported versions, reporting guidance, and current security limitations.
 
 ## License
 

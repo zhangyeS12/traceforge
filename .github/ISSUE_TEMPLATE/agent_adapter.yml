@@ -1,0 +1,27 @@
+name: Agent adapter request
+description: Request support for a coding agent or tool wrapper
+title: "adapter: "
+labels: [agent-adapter]
+body:
+  - type: input
+    id: agent
+    attributes:
+      label: Agent/tool name
+      placeholder: "Codex, Claude Code, Cline, OpenHands, custom wrapper..."
+    validations:
+      required: true
+  - type: textarea
+    id: invocation
+    attributes:
+      label: How is it launched?
+      description: Include example commands, environment variables, or config files if possible.
+      placeholder: "agent-cli --task 'fix tests'"
+    validations:
+      required: true
+  - type: textarea
+    id: trace
+    attributes:
+      label: What should TraceForge capture?
+      placeholder: "commands, tool calls, file edits, MCP calls, model/cost metadata..."
+    validations:
+      required: true

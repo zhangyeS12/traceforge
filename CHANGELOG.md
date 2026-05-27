@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-rc1
+
+- Promoted TraceForge to a public release candidate.
+- Added SECURITY.md with reporting guidance and current security model.
+- Added GitHub issue templates for bugs, feature requests, and agent adapter requests.
+- Added installation, release, and demo-agent-run documentation.
+- Added an example demo agent run scenario under `examples/demo_agent_run/`.
+- Extended release-check to validate public-readiness files and GitHub issue templates.
+
 ## 0.9.1
 
 - Added `traceforge risk <run_id>` with JSON output.

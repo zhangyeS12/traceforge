@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a reproducible TraceForge bug
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve TraceForge. Please include enough information to reproduce the issue.
+  - type: input
+    id: version
+    attributes:
+      label: TraceForge version
+      description: Run `traceforge version`.
+      placeholder: "traceforge 1.0.0rc1"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or workflow
+      description: What did you run?
+      placeholder: "traceforge run -- python hello.py"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior / logs
+      description: Paste the final error lines or attach screenshots.
+    validations:
+      required: true
