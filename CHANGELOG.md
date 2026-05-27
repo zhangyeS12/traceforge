@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.1
+
+- Added `traceforge reindex` to rebuild the SQLite run index from existing `.traceforge/runs` artifacts and reports.
+- Added release packaging guardrails to keep local run data out of release archives.
+
+
+## 1.1.0
+
+- Added the first agent adapter layer with `traceforge agent list`, `traceforge agent doctor`, and `traceforge agent run <adapter>`.
+- Added built-in adapters for `shell`, `codex`, `claude`, `aider`, and `opencode`.
+- Added `agent.adapter.selected` timeline events so agent runs are identifiable in replay.
+- Added profile pinning and demo GIF documentation to improve public project presentation.
+
 ## 1.0.0
 
 - Promoted TraceForge to its first stable public release.

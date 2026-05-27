@@ -11,7 +11,7 @@ traceforge selftest
 Then validate the zip package:
 
 ```bash
-traceforge release-check --zip traceforge_v1_0.zip
+traceforge release-check --zip traceforge_v1_1.zip
 ```
 
 Recommended release steps:
@@ -30,17 +30,17 @@ Recommended release steps:
 Python package versions use PEP 440 spelling, for example:
 
 ```text
-1.0.0
+1.1.0
 ```
 
 Git tags and human-facing docs use release spelling:
 
 ```text
-v1.0.0
+v1.1.0
 ```
 
 Current stable release tag suggestion:
 
 ```text
-v1.0.0
+v1.1.0
 ```

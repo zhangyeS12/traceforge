@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import platform
@@ -13,9 +14,11 @@ import tomllib
 import webbrowser
 import zipfile
 from pathlib import Path
+from datetime import datetime
 from typing import Any
 
 from . import __version__
+from .agent import agent_metadata, build_agent_command, list_agent_adapters
 from .compare import compare_runs
 from .core import event, run_command
 from .report import generate_index, generate_report
@@ -28,6 +31,9 @@ from .storage import (
     get_run,
     init_workspace,
     insert_event,
+    insert_events,
+    insert_file_changes,
+    insert_run,
     list_runs,
     paths_for,
 )
@@ -57,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_compare(argv[1:])
     if cmd == "risk":
         return cmd_risk(argv[1:])
+    if cmd == "agent":
+        return cmd_agent(argv[1:])
     if cmd == "report":
         return cmd_report(argv[1:])
     if cmd == "open":
@@ -73,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_release_check(argv[1:])
     if cmd in {"version-check", "version_check"}:
         return cmd_version_check(argv[1:])
+    if cmd == "reindex":
+        return cmd_reindex(argv[1:])
     if cmd in {"dashboard", "ui"}:
         return cmd_dashboard(argv[1:])
     if cmd == "clean":
@@ -342,6 +352,103 @@ def cmd_risk(args: list[str]) -> int:
     return 0
 
 
+
+def cmd_agent(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="traceforge agent", description="Run or inspect coding-agent adapters.")
+    sub = parser.add_subparsers(dest="subcommand")
+
+    list_parser = sub.add_parser("list", help="list built-in agent adapters")
+    list_parser.add_argument("--json", action="store_true")
+
+    doctor_parser = sub.add_parser("doctor", help="check whether adapter executables are installed")
+    doctor_parser.add_argument("--json", action="store_true")
+
+    run_parser = sub.add_parser("run", help="record an agent run through an adapter")
+    run_parser.add_argument("adapter", help="adapter name, e.g. shell, codex, claude, aider, opencode")
+    run_parser.add_argument("--live", action="store_true", help="stream stdout/stderr while recording")
+    run_parser.add_argument("--shell", action="store_true", help="only meaningful for the shell adapter")
+    run_parser.add_argument("--preview", action="store_true", help="print the command TraceForge would run without executing it")
+    run_parser.add_argument("--no-propagate-exit", action="store_true", help="always exit traceforge with 0 even if the recorded agent command fails")
+    run_parser.add_argument("task", nargs=argparse.REMAINDER, help="task prompt or command; use -- before it")
+
+    ns = parser.parse_args(args)
+    if ns.subcommand in {"list", "doctor"}:
+        adapters = list_agent_adapters()
+        if getattr(ns, "json", False):
+            print(json.dumps({"adapters": adapters}, indent=2, ensure_ascii=False))
+            return 0
+        print("TraceForge agent adapters")
+        for row in adapters:
+            mark = "OK" if row["available"] else "MISS"
+            exe = row["executable"] or "<passthrough>"
+            path = row["path"] or ""
+            print(f"[{mark:4}] {row['name']:<10} {exe:<14} {row['description']}")
+            if path:
+                print(f"       path: {path}")
+        return 0
+
+    if ns.subcommand == "run":
+        task = list(ns.task)
+        # argparse.REMAINDER treats options after the adapter as task text.
+        # Normalize common flags so both of these work:
+        #   traceforge agent run --preview shell -- python app.py
+        #   traceforge agent run shell --preview -- python app.py
+        while task:
+            if task[0] == "--":
+                task = task[1:]
+                break
+            if task[0] == "--preview":
+                ns.preview = True
+                task = task[1:]
+                continue
+            if task[0] == "--live":
+                ns.live = True
+                task = task[1:]
+                continue
+            if task[0] == "--shell":
+                ns.shell = True
+                task = task[1:]
+                continue
+            if task[0] == "--no-propagate-exit":
+                ns.no_propagate_exit = True
+                task = task[1:]
+                continue
+            break
+        try:
+            agent_cmd = build_agent_command(ns.adapter, task, shell=ns.shell)
+        except ValueError as exc:
+            print(str(exc))
+            return 2
+        if not agent_cmd.available and agent_cmd.adapter != "shell":
+            print(f"Adapter executable not found: {agent_cmd.executable}")
+            print("Install the tool or use `traceforge agent list` to inspect available adapters.")
+            return 1
+        print(f"Adapter: {agent_cmd.adapter}")
+        print(f"Command: {agent_cmd.command if isinstance(agent_cmd.command, str) else display_agent_command(agent_cmd.command)}")
+        if ns.preview:
+            return 0
+        result = run_command(
+            agent_cmd.command,
+            live=ns.live,
+            shell=agent_cmd.shell,
+            agent_metadata=agent_metadata(agent_cmd),
+        )
+        print(f"Run recorded: {result.run_id}")
+        print(f"Exit code: {result.exit_code}")
+        print(f"Timeline: traceforge timeline {result.run_id}")
+        print(f"Dashboard: traceforge dashboard")
+        return 0 if ns.no_propagate_exit else result.exit_code
+
+    parser.print_help()
+    return 2
+
+
+def display_agent_command(command: list[str]) -> str:
+    if os.name == "nt":
+        return subprocess.list2cmdline(command)
+    return " ".join(command)
+
+
 def cmd_export(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="traceforge export")
     parser.add_argument("run_id")
@@ -397,6 +504,235 @@ def export_run(paths: Any, run_id: str, out: Path | None = None) -> Path:
     except Exception:
         pass
     return target
+
+
+def cmd_reindex(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="traceforge reindex", description="Rebuild missing SQLite run records from .traceforge/runs artifacts.")
+    parser.add_argument("--dry-run", action="store_true", help="show what would be restored without writing to the database")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    ns = parser.parse_args(args)
+
+    paths = init_workspace()
+    run_dirs = sorted([p for p in paths.runs_dir.iterdir() if p.is_dir()]) if paths.runs_dir.exists() else []
+    restored: list[dict[str, Any]] = []
+    skipped: list[str] = []
+    failed: list[dict[str, str]] = []
+
+    with connect(paths) as conn:
+        existing = {row["id"] for row in list_runs(conn, limit=100000)}
+        for run_dir in run_dirs:
+            run_id = run_dir.name
+            if run_id in existing:
+                skipped.append(run_id)
+                continue
+            try:
+                run_record, events, changes = _reconstruct_run_from_artifacts(paths, run_id)
+                if not ns.dry_run:
+                    insert_run(conn, run_record)
+                    insert_events(conn, events)
+                    insert_file_changes(conn, changes)
+                restored.append({"id": run_id, "command": run_record["command"], "changes": len(changes), "events": len(events)})
+            except Exception as exc:
+                failed.append({"id": run_id, "error": f"{exc.__class__.__name__}: {exc}"})
+
+    if not ns.dry_run:
+        try:
+            generate_index(paths)
+        except Exception:
+            pass
+
+    payload = {"restored": restored, "skipped": skipped, "failed": failed, "dry_run": ns.dry_run}
+    if ns.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0 if not failed else 1
+
+    print("TraceForge reindex")
+    print(f"Run artifact folders: {len(run_dirs)}")
+    print(f"Restored: {len(restored)}")
+    for item in restored:
+        print(f"  + {item['id']} | files={item['changes']} | events={item['events']} | {item['command']}")
+    print(f"Skipped existing: {len(skipped)}")
+    if failed:
+        print("Failed:")
+        for item in failed:
+            print(f"  ! {item['id']}: {item['error']}")
+    print("Result:", "PASS" if not failed else "PARTIAL")
+    return 0 if not failed else 1
+
+
+def _reconstruct_run_from_artifacts(paths: Any, run_id: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    run_dir = paths.runs_dir / run_id
+    trace_json = run_dir / "trace.json"
+    if trace_json.exists():
+        data = json.loads(trace_json.read_text(encoding="utf-8", errors="replace"))
+        run = dict(data.get("run") or {})
+        events = [dict(ev) for ev in data.get("events") or []]
+        changes = [dict(ch) for ch in data.get("file_changes") or []]
+        return _normalize_reindexed_payload(paths, run_id, run, events, changes)
+
+    report_path = paths.reports_dir / f"{run_id}.html"
+    report_text = report_path.read_text(encoding="utf-8", errors="replace") if report_path.exists() else ""
+    command = _extract_report_command(report_text) or "reindexed: unknown command"
+    exit_code = _extract_report_int(report_text, "Exit Code", default=0)
+    duration_ms = _extract_report_int(report_text, "Duration", default=0)
+    risk_level = _extract_report_text(report_text, "Risk") or "low"
+
+    stdout_rel = f".traceforge/runs/{run_id}/stdout.txt"
+    stderr_rel = f".traceforge/runs/{run_id}/stderr.txt"
+    patch_rel = f".traceforge/runs/{run_id}/patch.diff"
+    patch_path = run_dir / "patch.diff"
+    patch = patch_path.read_text(encoding="utf-8", errors="replace") if patch_path.exists() else ""
+    changes = _changes_from_patch(run_id, patch)
+    if not changes and report_text:
+        changes = _changes_from_report(run_id, report_text)
+
+    started_at = _run_id_to_iso(run_id) or datetime_from_mtime(run_dir)
+    finished_at = started_at
+    diff_stat = _summarize_patch(patch, changes)
+    risk_notes: list[str] = []
+
+    run = {
+        "id": run_id,
+        "command": command,
+        "cwd": str(paths.root),
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "duration_ms": duration_ms,
+        "exit_code": exit_code,
+        "git_before": "",
+        "git_after": "",
+        "status_before": "",
+        "status_after": "",
+        "stdout_path": stdout_rel,
+        "stderr_path": stderr_rel,
+        "patch_path": patch_rel,
+        "diff_stat": diff_stat,
+        "risk_level": risk_level,
+        "risk_notes": json.dumps(risk_notes, ensure_ascii=False),
+    }
+    events = _synthetic_reindex_events(run_id, command, exit_code, duration_ms, changes, report_path.exists())
+    return run, events, changes
+
+
+def _normalize_reindexed_payload(paths: Any, run_id: str, run: dict[str, Any], events: list[dict[str, Any]], changes: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    defaults = {
+        "id": run_id,
+        "command": run.get("command") or "reindexed: unknown command",
+        "cwd": run.get("cwd") or str(paths.root),
+        "started_at": run.get("started_at") or (_run_id_to_iso(run_id) or datetime_from_mtime(paths.runs_dir / run_id)),
+        "finished_at": run.get("finished_at") or (_run_id_to_iso(run_id) or datetime_from_mtime(paths.runs_dir / run_id)),
+        "duration_ms": int(run.get("duration_ms") or 0),
+        "exit_code": int(run.get("exit_code") or 0),
+        "git_before": run.get("git_before") or "",
+        "git_after": run.get("git_after") or "",
+        "status_before": run.get("status_before") or "",
+        "status_after": run.get("status_after") or "",
+        "stdout_path": run.get("stdout_path") or f".traceforge/runs/{run_id}/stdout.txt",
+        "stderr_path": run.get("stderr_path") or f".traceforge/runs/{run_id}/stderr.txt",
+        "patch_path": run.get("patch_path") or f".traceforge/runs/{run_id}/patch.diff",
+        "diff_stat": run.get("diff_stat") or "",
+        "risk_level": run.get("risk_level") or "low",
+        "risk_notes": run.get("risk_notes") if isinstance(run.get("risk_notes"), str) else json.dumps(run.get("risk_notes") or [], ensure_ascii=False),
+    }
+    norm_events = []
+    for ev in events:
+        norm_events.append({
+            "run_id": run_id,
+            "ts": ev.get("ts") or defaults["started_at"],
+            "kind": ev.get("kind") or "reindexed.event",
+            "message": ev.get("message") or "Recovered event",
+            "data": ev.get("data") if isinstance(ev.get("data"), str) else json.dumps(ev.get("data") or {}, ensure_ascii=False),
+        })
+    if not norm_events:
+        norm_events = _synthetic_reindex_events(run_id, defaults["command"], defaults["exit_code"], defaults["duration_ms"], changes, True)
+    norm_changes = [{"run_id": run_id, "status": ch.get("status") or "M", "path": ch.get("path") or ch.get("filename") or "unknown"} for ch in changes]
+    return defaults, norm_events, norm_changes
+
+
+def _extract_report_command(text: str) -> str | None:
+    m = re.search(r"<p><code>(.*?)</code></p>", text, re.S)
+    return html.unescape(re.sub(r"<.*?>", "", m.group(1))).strip() if m else None
+
+
+def _extract_report_int(text: str, label: str, default: int = 0) -> int:
+    value = _extract_report_text(text, label)
+    if not value:
+        return default
+    m = re.search(r"-?\d+", value)
+    return int(m.group(0)) if m else default
+
+
+def _extract_report_text(text: str, label: str) -> str | None:
+    pattern = rf"<span>{re.escape(label)}</span>\s*<strong[^>]*>(.*?)</strong>"
+    m = re.search(pattern, text, re.S)
+    if not m:
+        return None
+    return html.unescape(re.sub(r"<.*?>", "", m.group(1))).strip()
+
+
+def _changes_from_patch(run_id: str, patch: str) -> list[dict[str, Any]]:
+    changes: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"^diff --git a/(.*?) b/(.*?)$", patch, re.M):
+        path = match.group(2).strip()
+        if path and path not in seen:
+            seen.add(path)
+            changes.append({"run_id": run_id, "status": "M", "path": path})
+    return changes
+
+
+def _changes_from_report(run_id: str, text: str) -> list[dict[str, Any]]:
+    changes: list[dict[str, Any]] = []
+    for status, path in re.findall(r"<li><code>(.*?)</code>\s*(.*?)</li>", text, re.S):
+        clean_path = html.unescape(re.sub(r"<.*?>", "", path)).strip()
+        if clean_path:
+            changes.append({"run_id": run_id, "status": html.unescape(status).strip() or "M", "path": clean_path})
+    return changes
+
+
+def _summarize_patch(patch: str, changes: list[dict[str, Any]]) -> str:
+    if not patch:
+        return ""
+    additions = sum(1 for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++"))
+    deletions = sum(1 for line in patch.splitlines() if line.startswith("-") and not line.startswith("---"))
+    return f"{len(changes)} file(s), {additions} insertion(+), {deletions} deletion(-)"
+
+
+def _run_id_to_iso(run_id: str) -> str | None:
+    m = re.match(r"(\d{8})-(\d{6})-", run_id)
+    if not m:
+        return None
+    raw = m.group(1) + m.group(2)
+    try:
+        dt = datetime.strptime(raw, "%Y%m%d%H%M%S")
+        return dt.isoformat(timespec="milliseconds") + "+00:00"
+    except Exception:
+        return None
+
+
+def datetime_from_mtime(path: Path) -> str:
+    from datetime import datetime, timezone
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat(timespec="milliseconds")
+    except Exception:
+        return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _synthetic_reindex_events(run_id: str, command: str, exit_code: int, duration_ms: int, changes: list[dict[str, Any]], has_report: bool) -> list[dict[str, Any]]:
+    ts = _run_id_to_iso(run_id) or datetime_from_mtime(Path.cwd())
+    items = [
+        ("run.started", f"Recovered run: {command}", {"reindexed": True, "offset_ms": 0}),
+        ("command.started", command, {"reindexed": True, "offset_ms": 0}),
+        ("process.exited", f"Command exited with code {exit_code}", {"exit_code": exit_code, "duration_ms": duration_ms, "offset_ms": duration_ms}),
+        ("artifact.written", "Recovered stdout, stderr, and patch artifacts", {"reindexed": True, "offset_ms": duration_ms}),
+        ("git.diff.captured", f"Recovered Git diff with {len(changes)} changed file(s)", {"changed_files_count": len(changes), "offset_ms": duration_ms}),
+    ]
+    for change in changes:
+        items.append(("file.changed", f"{change['status']} {change['path']}", {"status": change["status"], "path": change["path"], "offset_ms": duration_ms}))
+    if has_report:
+        items.append(("report.generated", "Recovered existing HTML report", {"reindexed": True, "offset_ms": duration_ms}))
+    items.append(("run.finished", f"Recovered run finished in {duration_ms} ms", {"exit_code": exit_code, "duration_ms": duration_ms, "offset_ms": duration_ms}))
+    return [{"run_id": run_id, "ts": ts, "kind": kind, "message": message, "data": json.dumps(data, ensure_ascii=False)} for kind, message, data in items]
 
 
 def cmd_doctor(args: list[str]) -> int:
@@ -510,6 +846,12 @@ def cmd_selftest(args: list[str]) -> int:
         risk_payload = assess_run(paths, result.run_id)
         record("risk_report_generated", bool(risk_payload and risk_payload["risk_level"] == "low"), risk_payload["risk_level"] if risk_payload else "missing risk report")
 
+        try:
+            shell_agent = build_agent_command("shell", [sys.executable, "modify_app.py"], shell=False)
+            record("agent_shell_adapter_builds", shell_agent.adapter == "shell" and isinstance(shell_agent.command, list), str(shell_agent.command))
+        except Exception as exc:
+            record("agent_shell_adapter_builds", False, str(exc))
+
         status = _quiet([git, "status", "--porcelain=v1"], cwd=root)
         record("git_status_detects_change", "app.py" in status.stdout, status.stdout.strip())
     finally:
@@ -591,9 +933,13 @@ def _check_release_tree(root: Path) -> list[dict[str, Any]]:
         "examples/demo_agent_run/buggy_math.py",
         "examples/demo_agent_run/test_buggy_math.py",
         "examples/demo_agent_run/agent_fix.py",
+        "docs/profile-pin.md",
+        "docs/demo-gif.md",
+        "docs/v1.1.0-agent-adapters.md",
         "traceforge/__init__.py",
         "traceforge/cli.py",
         "traceforge/core.py",
+        "traceforge/agent.py",
         "traceforge/compare.py",
         "traceforge/risk.py",
         "traceforge/storage.py",
@@ -650,9 +996,13 @@ def _check_release_zip(zip_path: Path) -> list[dict[str, Any]]:
                 "traceforge/examples/demo_agent_run/buggy_math.py",
                 "traceforge/examples/demo_agent_run/test_buggy_math.py",
                 "traceforge/examples/demo_agent_run/agent_fix.py",
+                "traceforge/docs/profile-pin.md",
+                "traceforge/docs/demo-gif.md",
+                "traceforge/docs/v1.1.0-agent-adapters.md",
                 "traceforge/traceforge/__init__.py",
                 "traceforge/traceforge/cli.py",
                 "traceforge/traceforge/core.py",
+                "traceforge/traceforge/agent.py",
                 "traceforge/traceforge/compare.py",
                 "traceforge/traceforge/risk.py",
                 "traceforge/traceforge/server.py",
@@ -929,6 +1279,7 @@ Usage:
   traceforge selftest [--keep-temp] [--json]
   traceforge release-check [--zip path] [--json]
   traceforge version-check [--json]
+  traceforge reindex [--dry-run] [--json]
   traceforge dashboard [--host 127.0.0.1] [--port 8787] [--no-open]
   traceforge run [--live] [--shell] [--no-propagate-exit] -- <command>
   traceforge list [--limit 20]
@@ -936,6 +1287,9 @@ Usage:
   traceforge timeline <run_id> [--json]
   traceforge compare <run_a> <run_b> [--json]
   traceforge risk <run_id> [--json]
+  traceforge agent list|doctor
+  traceforge reindex
+  traceforge agent run <adapter> [--live] [--preview] -- <task-or-command>
   traceforge report <run_id>
   traceforge open [run_id]
   traceforge diff <run_a> <run_b>   # alias of compare
@@ -951,6 +1305,8 @@ Examples:
   traceforge timeline <run_id>
   traceforge compare <run_a> <run_b>
   traceforge risk <run_id>
+  traceforge agent list
+  traceforge agent run shell -- python hello.py
   traceforge dashboard
 
 Without installing:

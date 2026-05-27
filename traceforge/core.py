@@ -58,6 +58,7 @@ def run_command(
     *,
     live: bool = False,
     shell: bool = False,
+    agent_metadata: dict[str, Any] | None = None,
 ) -> RunResult:
     """Run a command and record it as a TraceForge run.
 
@@ -109,6 +110,8 @@ def run_command(
         "shell": shell,
     })
     add("command.started", command_text, {"argv": list(command) if not isinstance(command, str) else command_text, "shell": shell})
+    if agent_metadata:
+        add("agent.adapter.selected", f"Agent adapter selected: {agent_metadata.get('adapter')}", agent_metadata)
     add("security.checked", "Command security policy checked", {"allowed": decision.allowed, "notes": decision.notes})
     add("git.snapshot.before", "Captured Git snapshot before command", {
         "commit": before.commit,
