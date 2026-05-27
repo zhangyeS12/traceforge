@@ -81,8 +81,6 @@ def _ensure_git_exclude(root: Path) -> None:
             ["git", "rev-parse", "--git-dir"],
             cwd=root,
             text=True,
-            encoding="utf-8",
-            errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,

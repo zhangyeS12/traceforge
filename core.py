@@ -112,8 +112,6 @@ def run_command(
         cwd=str(paths.root),
         shell=shell,
         text=True,
-        encoding="utf-8",
-        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=_safe_environ(),
@@ -252,10 +250,6 @@ def _safe_environ() -> dict[str, str]:
         if key is None or value is None:
             continue
         env[str(key)] = str(value)
-
-    # Hint Python child processes to emit UTF-8. Parent-side decoding still uses
-    # errors="replace", so TraceForge should never crash on undecodable bytes.
-    env.setdefault("PYTHONIOENCODING", "utf-8:replace")
     return env
 
 def event(run_id: str, kind: str, message: str, data: dict[str, Any] | None = None) -> dict[str, Any]:

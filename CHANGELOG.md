@@ -1,4 +1,45 @@
+## 0.4.2
+
+- Fixed dashboard command runner startup failures on Windows by normalizing subprocess argv, cwd, and environment values before calling `subprocess.Popen`.
+- Dashboard API now returns a clean validation error instead of a raw traceback when command startup fails.
+
+## 0.4.1
+
+- Fixed release archive layout so extracting to `C:\Projects` correctly updates `C:\Projects\traceforge`.
+
 # Changelog
+
+## 0.4.0
+
+- Added browser-driven command execution from the local dashboard.
+- Added `POST /api/runs` for creating recorded runs through the local HTTP API.
+- Added a dashboard command runner with optional shell mode, loading state, and automatic run selection after completion.
+- Improved dashboard error reporting for invalid, blocked, or missing commands.
+
+## 0.3.2
+
+- Fixed dashboard JavaScript rendering bug caused by an incorrectly escaped diff line splitter.
+- Added HTTP error handling for dashboard run loading.
+- Removed duplicate run metadata row in the run list.
+
+
+## 0.3.1
+
+Dashboard polish release.
+
+- Added top-level summary cards for total runs, success rate, failed runs, changed files, risky runs, and average duration.
+- Added run filters: All, Success, Failed, Changed, Risky.
+- Improved patch display with diff-style highlighting for additions, deletions, file headers, and hunks.
+- Improved timeline styling and empty states.
+- Added copy button for currently selected artifact.
+
+## 0.3.0
+
+- Added `traceforge dashboard` / `traceforge ui` for a local browser dashboard.
+- Added a standard-library local HTTP server for dashboard APIs.
+- Added `/api/runs`, `/api/runs/<run_id>`, and `/api/health` endpoints.
+- Dashboard now shows run list, metrics, command, artifacts, changed files, timeline, security notes, and full JSON view.
+
 
 ## 0.2.1
 

@@ -23,7 +23,9 @@ TraceForge gives every run a local, reviewable trace.
 
 ## Features
 
-### V0.2 current features
+### V0.3 current features
+
+- Dashboard polish: summary cards, filters, and highlighted patch diffs
 
 - `traceforge run -- <command>` records a command execution.
 - `--live` streams stdout/stderr while still recording it.
@@ -33,6 +35,8 @@ TraceForge gives every run a local, reviewable trace.
 - Captures Git HEAD, Git status, changed files, diff stat, and patch.
 - Stores trace data in local SQLite under `.traceforge/`.
 - Generates self-contained HTML reports.
+- `traceforge dashboard` starts a local browser dashboard at `http://127.0.0.1:8787`.
+- Dashboard shows run list, run detail, metrics, timeline, changed files, stdout, stderr, patch diff, and JSON.
 - Provides run listing, run details, basic run comparison, and a local report index.
 - `traceforge doctor` checks your local environment.
 - `traceforge export <run_id>` exports a full run as JSON.
@@ -55,6 +59,7 @@ traceforge doctor
 traceforge run -- python hello.py
 traceforge list
 traceforge open
+traceforge dashboard
 ```
 
 Without installing, from the repository root:
@@ -129,11 +134,34 @@ traceforge list --limit 20
 traceforge show <run_id>
 traceforge report <run_id>
 traceforge open [run_id]
+traceforge dashboard [--host 127.0.0.1] [--port 8787] [--no-open]
 traceforge diff <run_a> <run_b>
 traceforge export <run_id> [--out trace.json]
 traceforge clean [--yes] [--all]
 traceforge demo [path]
 traceforge version
+```
+
+## Dashboard
+
+Start the local web UI:
+
+```bash
+traceforge dashboard
+```
+
+This opens a local browser page, usually:
+
+```text
+http://127.0.0.1:8787
+```
+
+The dashboard reads your local `.traceforge/traceforge.db`; it does not upload your traces anywhere. Press `Ctrl+C` in the terminal to stop the server.
+
+For a terminal-only machine:
+
+```bash
+traceforge dashboard --no-open
 ```
 
 ## Shellless vs shell mode
@@ -216,8 +244,15 @@ HTML report + optional JSON export
 
 ### V0.3
 
+- Local browser dashboard
+- JSON API for runs and run details
+- Visual run list, metrics, timeline, changed files, artifacts, and patch viewer
+
+### V0.4
+
 - File-system watcher instead of only before/after Git snapshots
-- Better diff viewer UI
+- Better side-by-side diff viewer UI
+- Selftest and GitHub Actions CI
 - Test-result parser for pytest/npm/jest
 - Run tags and notes
 - Configurable retention policy
@@ -250,3 +285,20 @@ This project is intentionally small and readable. Good first contributions:
 - Add support for tags and run notes.
 - Add Docker sandbox execution.
 - Add adapters for common coding agents.
+
+
+### Run commands from the dashboard
+
+After starting the dashboard, you can type a command directly in the browser:
+
+```bash
+traceforge dashboard
+```
+
+Then enter a command such as:
+
+```bash
+python modify_hello.py
+```
+
+TraceForge will run it locally, record stdout/stderr, capture Git diff, refresh the run list, and open the new run detail automatically.
