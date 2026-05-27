@@ -1,11 +1,11 @@
 # TraceForge
 
-> **Local black-box recorder for command runs and AI coding agents.**
+> **Local black-box recorder and adapter layer for command runs and AI coding agents.**
 
-TraceForge records what actually happened during a coding-agent or shell-command run: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, security findings, run comparisons, HTML reports, and JSON traces. It also ships with a localhost dashboard so you can replay and inspect runs without uploading your code anywhere.
+TraceForge records what actually happened during a coding-agent or shell-command run, and now includes a thin adapter layer for wrapping agent CLIs: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, security findings, run comparisons, HTML reports, and JSON traces. It also ships with a localhost dashboard so you can replay and inspect runs without uploading your code anywhere.
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-1.1.1-blue">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="status" src="https://img.shields.io/badge/status-stable-purple">
@@ -36,6 +36,7 @@ traceforge dashboard
 
 It shows run metrics, searchable run history, command details, timeline events, risk report, stdout, stderr, patch diff, changed files, compare view, and full JSON.
 
+![TraceForge demo](docs/assets/demo.gif)
 ![TraceForge dashboard](docs/assets/dashboard.png)
 
 ## Install
@@ -121,6 +122,7 @@ http://127.0.0.1:8787
 
 - **CLI recorder**: `traceforge run -- <command>` records one command run.
 - **Dashboard runner**: run commands directly from the browser dashboard.
+- **Agent adapters**: wrap `shell`, `codex`, `claude`, `aider`, `opencode`, or custom agent commands with `traceforge agent run`.
 - **Replayable timeline**: command start, stdout/stderr chunks, process exit, Git snapshots, diff capture, file changes, report generation, and run completion.
 - **Run comparison**: compare two runs by exit code, duration, changed files, event count, patch size, and file overlap.
 - **Security risk report**: scan risky commands, sensitive-looking files, dependency/CI changes, broad file changes, traceback output, and possible secret material.
@@ -131,7 +133,8 @@ http://127.0.0.1:8787
 - **JSON export**: `traceforge export <run_id>` creates machine-readable traces.
 - **Doctor checks**: `traceforge doctor` checks Python, Git, optional toolchains, workspace, and database.
 - **Selftest**: `traceforge selftest` creates a temporary Git repo and verifies the full record → diff → report → JSON → compare → risk flow.
-- **Version guard**: `traceforge version-check` validates pyproject, runtime, README badge, and CHANGELOG versions.
+- **Version guard**: `traceforge version-check
+traceforge reindex` validates pyproject, runtime, README badge, and CHANGELOG versions.
 - **Release checks**: `traceforge release-check` validates local source trees and release zip layout.
 
 ## CLI reference
@@ -145,6 +148,9 @@ traceforge show <run_id>
 traceforge timeline <run_id> [--json]
 traceforge compare <run_a> <run_b> [--json]
 traceforge risk <run_id> [--json]
+traceforge agent list
+traceforge agent doctor
+traceforge agent run <adapter> [--live] [--preview] -- <task-or-command>
 traceforge report <run_id>
 traceforge open [run_id]
 traceforge dashboard [--host 127.0.0.1] [--port 8787] [--no-open]
@@ -152,7 +158,8 @@ traceforge diff <run_a> <run_b>  # alias for compare
 traceforge export <run_id> [--out trace.json]
 traceforge clean [--yes] [--all]
 traceforge selftest [--json]
-traceforge version-check [--json]
+traceforge version-check
+traceforge reindex [--json]
 traceforge release-check [--zip path] [--json]
 traceforge demo [path]
 traceforge version
@@ -175,6 +182,29 @@ traceforge run --shell -- "npm test && npm run lint"
 ```
 
 In the dashboard, enable the `shell` checkbox for the same behavior.
+
+## Agent adapters
+
+List available adapters:
+
+```bash
+traceforge agent list
+traceforge agent doctor
+```
+
+Run a passthrough command through the adapter layer:
+
+```bash
+traceforge agent run shell -- python modify_hello.py
+```
+
+Preview an agent command without running it:
+
+```bash
+traceforge agent run codex --preview -- "fix the failing tests"
+```
+
+TraceForge keeps adapters thin: the adapter builds the local command, and the core recorder still captures stdout, stderr, Git diff, timeline, compare, and risk report.
 
 ## Run comparison
 
@@ -264,6 +294,7 @@ Before publishing or debugging a user environment:
 ```bash
 traceforge doctor
 traceforge version-check
+traceforge reindex
 traceforge selftest
 traceforge release-check
 ```
@@ -289,7 +320,7 @@ traceforge release-check --zip traceforge_v1_0_rc2.zip
 
 ### Agent-focused roadmap
 
-- Adapters for Codex, Claude Code, Cline, OpenHands, and custom agent wrappers.
+- More robust adapters for Codex, Claude Code, Cline, OpenHands, and custom agent wrappers.
 - MCP tool-call recording.
 - Prompt-injection and sensitive-file audit layer.
 - Docker sandbox execution.
