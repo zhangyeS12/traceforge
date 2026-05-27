@@ -1,3 +1,13 @@
+# Changelog
+
+## 0.6.0
+
+- Reworked README into a GitHub-ready project landing page with clearer positioning, Quick Start, dashboard workflow, architecture, roadmap, and resume description.
+- Added `docs/demo-script.md` for creating clean dashboard screenshots and demos.
+- Added `docs/github-readiness.md` as a pre-publish checklist.
+- Added `docs/assets/` placeholder directory for README images and demo GIFs.
+- Updated package version to 0.6.0.
+
 
 ## 0.5.0
 
