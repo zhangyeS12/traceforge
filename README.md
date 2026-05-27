@@ -5,10 +5,10 @@
 TraceForge records what actually happened during a coding-agent or shell-command run: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, security findings, run comparisons, HTML reports, and JSON traces. It also ships with a localhost dashboard so you can replay and inspect runs without uploading your code anywhere.
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.0--rc1-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.0-blue">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="status" src="https://img.shields.io/badge/status-release--candidate-purple">
+  <img alt="status" src="https://img.shields.io/badge/status-stable-purple">
 </p>
 
 ---
@@ -131,6 +131,7 @@ http://127.0.0.1:8787
 - **JSON export**: `traceforge export <run_id>` creates machine-readable traces.
 - **Doctor checks**: `traceforge doctor` checks Python, Git, optional toolchains, workspace, and database.
 - **Selftest**: `traceforge selftest` creates a temporary Git repo and verifies the full record → diff → report → JSON → compare → risk flow.
+- **Version guard**: `traceforge version-check` validates pyproject, runtime, README badge, and CHANGELOG versions.
 - **Release checks**: `traceforge release-check` validates local source trees and release zip layout.
 
 ## CLI reference
@@ -151,6 +152,7 @@ traceforge diff <run_a> <run_b>  # alias for compare
 traceforge export <run_id> [--out trace.json]
 traceforge clean [--yes] [--all]
 traceforge selftest [--json]
+traceforge version-check [--json]
 traceforge release-check [--zip path] [--json]
 traceforge demo [path]
 traceforge version
@@ -261,6 +263,7 @@ Before publishing or debugging a user environment:
 
 ```bash
 traceforge doctor
+traceforge version-check
 traceforge selftest
 traceforge release-check
 ```
@@ -268,7 +271,7 @@ traceforge release-check
 Before sharing a zip release:
 
 ```bash
-traceforge release-check --zip traceforge_v1_0_rc1.zip
+traceforge release-check --zip traceforge_v1_0_rc2.zip
 ```
 
 ## Roadmap

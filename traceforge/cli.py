@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -70,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_selftest(argv[1:])
     if cmd in {"release-check", "release_check"}:
         return cmd_release_check(argv[1:])
+    if cmd in {"version-check", "version_check"}:
+        return cmd_version_check(argv[1:])
     if cmd in {"dashboard", "ui"}:
         return cmd_dashboard(argv[1:])
     if cmd == "clean":
@@ -552,6 +555,24 @@ def cmd_release_check(args: list[str]) -> int:
     return 0 if ok else 1
 
 
+def cmd_version_check(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="traceforge version-check", description="Validate all version metadata surfaces before pushing or tagging.")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    ns = parser.parse_args(args)
+
+    checks = [item for item in _check_release_tree(Path.cwd()) if "version" in item["name"]]
+    ok = all(item["ok"] for item in checks)
+    if ns.json:
+        print(json.dumps({"ok": ok, "checks": checks}, indent=2, ensure_ascii=False))
+    else:
+        print("TraceForge version-check")
+        for item in checks:
+            mark = "OK" if item["ok"] else "FAIL"
+            print(f"[{mark:4}] {item['name']:<28} {item['detail']}")
+        print("\nResult:", "PASS" if ok else "FAIL")
+    return 0 if ok else 1
+
+
 def _check_release_tree(root: Path) -> list[dict[str, Any]]:
     required = [
         "pyproject.toml",
@@ -586,7 +607,16 @@ def _check_release_tree(root: Path) -> list[dict[str, Any]]:
     init_py = root / "traceforge" / "__init__.py"
     project_version = _read_pyproject_version(pyproject) if pyproject.exists() else None
     package_version = _read_init_version(init_py) if init_py.exists() else None
-    checks.append({"name": "version_consistency", "ok": bool(project_version and project_version == package_version == __version__), "detail": f"pyproject={project_version}, package={package_version}, runtime={__version__}"})
+    readme_badge_version = _read_readme_badge_version(root / "README.md")
+    changelog_version = _read_changelog_top_version(root / "CHANGELOG.md")
+    _append_version_checks(
+        checks,
+        project_version=project_version,
+        package_version=package_version,
+        runtime_version=__version__,
+        readme_badge_version=readme_badge_version,
+        changelog_version=changelog_version,
+    )
     checks.append({"name": "working_directory", "ok": (root / "pyproject.toml").exists() and (root / "traceforge").is_dir(), "detail": str(root)})
     return checks
 
@@ -633,12 +663,26 @@ def _check_release_zip(zip_path: Path) -> list[dict[str, Any]]:
 
             py_version = None
             init_version = None
+            readme_badge_version = None
+            changelog_version = None
             if "traceforge/pyproject.toml" in name_set:
                 py_data = tomllib.loads(zf.read("traceforge/pyproject.toml").decode("utf-8", errors="replace"))
                 py_version = py_data.get("project", {}).get("version")
             if "traceforge/traceforge/__init__.py" in name_set:
                 init_version = _parse_version_text(zf.read("traceforge/traceforge/__init__.py").decode("utf-8", errors="replace"))
-            checks.append({"name": "zip_version_consistency", "ok": bool(py_version and py_version == init_version), "detail": f"pyproject={py_version}, package={init_version}"})
+            if "traceforge/README.md" in name_set:
+                readme_badge_version = _parse_readme_badge_version(zf.read("traceforge/README.md").decode("utf-8", errors="replace"))
+            if "traceforge/CHANGELOG.md" in name_set:
+                changelog_version = _parse_changelog_top_version(zf.read("traceforge/CHANGELOG.md").decode("utf-8", errors="replace"))
+            _append_version_checks(
+                checks,
+                project_version=py_version,
+                package_version=init_version,
+                runtime_version=init_version,
+                readme_badge_version=readme_badge_version,
+                changelog_version=changelog_version,
+                prefix="zip_",
+            )
     except zipfile.BadZipFile as exc:
         checks.append({"name": "zip_readable", "ok": False, "detail": str(exc)})
     return checks
@@ -677,6 +721,73 @@ def _parse_version_text(text: str) -> str | None:
         if line.strip().startswith("__version__") and "=" in line:
             return line.split("=", 1)[1].strip().strip('"\'')
     return None
+
+def _append_version_checks(
+    checks: list[dict[str, Any]],
+    *,
+    project_version: str | None,
+    package_version: str | None,
+    runtime_version: str | None,
+    readme_badge_version: str | None,
+    changelog_version: str | None,
+    prefix: str = "",
+) -> None:
+    expected_display = _display_version(project_version) if project_version else None
+    base_ok = bool(project_version and project_version == package_version == runtime_version)
+    checks.append({
+        "name": f"{prefix}version_consistency",
+        "ok": base_ok,
+        "detail": f"pyproject={project_version}, package={package_version}, runtime={runtime_version}",
+    })
+    checks.append({
+        "name": f"{prefix}readme_badge_version",
+        "ok": bool(expected_display and readme_badge_version == expected_display),
+        "detail": f"expected={expected_display}, README={readme_badge_version}",
+    })
+    checks.append({
+        "name": f"{prefix}changelog_top_version",
+        "ok": bool(expected_display and changelog_version == expected_display),
+        "detail": f"expected={expected_display}, CHANGELOG={changelog_version}",
+    })
+
+
+def _display_version(version: str | None) -> str | None:
+    if not version:
+        return None
+    match = re.fullmatch(r"(\d+\.\d+\.\d+)rc(\d+)", version)
+    if match:
+        return f"{match.group(1)}-rc{match.group(2)}"
+    return version
+
+
+def _read_readme_badge_version(path: Path) -> str | None:
+    try:
+        return _parse_readme_badge_version(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _parse_readme_badge_version(text: str) -> str | None:
+    match = re.search(r"badge/version-(.*?)-blue", text)
+    if not match:
+        return None
+    return match.group(1).replace("--", "-")
+
+
+def _read_changelog_top_version(path: Path) -> str | None:
+    try:
+        return _parse_changelog_top_version(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _parse_changelog_top_version(text: str) -> str | None:
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("## "):
+            return line[3:].strip()
+    return None
+
 
 def cmd_dashboard(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="traceforge dashboard")
@@ -817,6 +928,7 @@ Usage:
   traceforge doctor [--json]
   traceforge selftest [--keep-temp] [--json]
   traceforge release-check [--zip path] [--json]
+  traceforge version-check [--json]
   traceforge dashboard [--host 127.0.0.1] [--port 8787] [--no-open]
   traceforge run [--live] [--shell] [--no-propagate-exit] -- <command>
   traceforge list [--limit 20]

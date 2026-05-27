@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.0
+
+- Promoted TraceForge to its first stable public release.
+- Finalized the local-first black-box recorder workflow for command runs and AI coding agents.
+- Includes dashboard replay, timeline events, run comparison, security risk reports, JSON export, HTML reports, selftest, release-check, and version-check.
+- Stabilized public documentation, security policy, issue templates, demo examples, and release metadata validation.
+
+## 1.0.0-rc2
+
+- Added stronger version consistency checks for release workflows.
+- `release-check` now validates `pyproject.toml`, `traceforge/__init__.py`, the README version badge, and the top CHANGELOG version together.
+- Added `traceforge version-check` as a quick pre-push guard for version metadata.
+
 ## 1.0.0-rc1
 
 - Promoted TraceForge to a public release candidate.
