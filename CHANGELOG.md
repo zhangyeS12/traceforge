@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.0
+
+- Added `traceforge compare <run_a> <run_b>` for comparing two recorded runs.
+- Kept `traceforge diff <run_a> <run_b>` as a compatibility alias for compare.
+- Added machine-readable compare output with `--json`.
+- Added a dashboard Compare Runs panel with run selectors, outcome deltas, patch-size deltas, event-count deltas, and file overlap buckets.
+- Added `traceforge/compare.py` as shared comparison logic for CLI and dashboard APIs.
+- Updated `selftest` to verify compare payload generation.
+- Updated `release-check` to validate compare module presence.
+- Updated package version to 0.8.0.
+
 ## 0.7.1
 
 - Moved `report.generated` before `run.finished` so a run timeline now ends only after replay artifacts are ready.

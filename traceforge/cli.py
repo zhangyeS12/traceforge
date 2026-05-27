@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .compare import compare_runs
 from .core import event, run_command
 from .report import generate_index, generate_report
 from .server import serve_dashboard
@@ -50,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_show(argv[1:])
     if cmd == "timeline":
         return cmd_timeline(argv[1:])
+    if cmd == "compare":
+        return cmd_compare(argv[1:])
     if cmd == "report":
         return cmd_report(argv[1:])
     if cmd == "open":
@@ -239,33 +242,61 @@ def cmd_open(args: list[str]) -> int:
 
 
 def cmd_diff(args: list[str]) -> int:
-    if len(args) != 2:
-        print("Usage: traceforge diff <run_a> <run_b>")
-        return 2
-    a_id, b_id = args
+    """Backward-compatible alias for the richer compare command."""
+    return cmd_compare(args)
+
+
+def cmd_compare(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="traceforge compare", description="Compare two recorded runs.")
+    parser.add_argument("run_a")
+    parser.add_argument("run_b")
+    parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    ns = parser.parse_args(args)
+
     paths = init_workspace()
-    with connect(paths) as conn:
-        a = get_run(conn, a_id)
-        b = get_run(conn, b_id)
-        a_changes = get_file_changes(conn, a_id)
-        b_changes = get_file_changes(conn, b_id)
-    if a is None or b is None:
+    payload = compare_runs(paths, ns.run_a, ns.run_b)
+    if payload is None:
         print("One or both runs were not found.")
         return 1
-    a_files = {row["path"] for row in a_changes}
-    b_files = {row["path"] for row in b_changes}
-    print(f"Run A: {a_id} | exit={a['exit_code']} | {a['duration_ms']}ms | files={len(a_files)}")
-    print(f"Run B: {b_id} | exit={b['exit_code']} | {b['duration_ms']}ms | files={len(b_files)}")
-    print("Only A:")
-    for path in sorted(a_files - b_files):
-        print(f"  {path}")
-    print("Only B:")
-    for path in sorted(b_files - a_files):
-        print(f"  {path}")
-    print("Both:")
-    for path in sorted(a_files & b_files):
-        print(f"  {path}")
+
+    if ns.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return 0
+
+    a = payload["run_a"]["metrics"]
+    b = payload["run_b"]["metrics"]
+    d = payload["diff"]
+
+    print("TraceForge compare")
+    print(f"Run A: {a['id']}")
+    print(f"  command: {a['command']}")
+    print(f"Run B: {b['id']}")
+    print(f"  command: {b['command']}")
+    print("")
+    print("Outcome")
+    print(f"  Exit code:      A={a['exit_code']}  B={b['exit_code']}  changed={d['exit_code_changed']}")
+    print(f"  Duration:       A={a['duration_ms']}ms  B={b['duration_ms']}ms  delta={d['duration_delta_ms']}ms")
+    print(f"  Changed files:  A={a['changed_files_count']}  B={b['changed_files_count']}  delta={d['changed_files_delta']}")
+    print(f"  Events:         A={a['event_count']}  B={b['event_count']}  delta={d['event_count_delta']}")
+    print(f"  Patch chars:    A={a['patch_chars']}  B={b['patch_chars']}  delta={d['patch_size_delta_chars']}")
+    print("")
+    _print_file_bucket("Common files", d["common_files"])
+    _print_file_bucket("Only in A", d["only_a"])
+    _print_file_bucket("Only in B", d["only_b"])
+    if d["status_changes"]:
+        print("Status changes:")
+        for row in d["status_changes"]:
+            print(f"  {row['path']}: A={row['a_status'] or '-'} B={row['b_status'] or '-'}")
     return 0
+
+
+def _print_file_bucket(title: str, files: list[str]) -> None:
+    print(f"{title}:")
+    if not files:
+        print("  none")
+        return
+    for path in files:
+        print(f"  {path}")
 
 
 def cmd_export(args: list[str]) -> int:
@@ -429,6 +460,10 @@ def cmd_selftest(args: list[str]) -> int:
         trace = json.loads(trace_path.read_text(encoding="utf-8"))
         record("json_export_generated", trace.get("run", {}).get("id") == result.run_id, str(trace_path))
 
+        comparison = compare_runs(paths, result.run_id, result.run_id)
+        compare_ok = bool(comparison and comparison["diff"]["changed_files_delta"] == 0 and comparison["run_a"]["metrics"]["event_count"] >= 1)
+        record("compare_generated", compare_ok, "self-compare" if comparison else "missing comparison")
+
         status = _quiet([git, "status", "--porcelain=v1"], cwd=root)
         record("git_status_detects_change", "app.py" in status.stdout, status.stdout.strip())
     finally:
@@ -483,6 +518,7 @@ def _check_release_tree(root: Path) -> list[dict[str, Any]]:
         "traceforge/__init__.py",
         "traceforge/cli.py",
         "traceforge/core.py",
+        "traceforge/compare.py",
         "traceforge/storage.py",
         "traceforge/server.py",
     ]
@@ -519,6 +555,7 @@ def _check_release_zip(zip_path: Path) -> list[dict[str, Any]]:
                 "traceforge/traceforge/__init__.py",
                 "traceforge/traceforge/cli.py",
                 "traceforge/traceforge/core.py",
+                "traceforge/traceforge/compare.py",
                 "traceforge/traceforge/server.py",
             ]
             name_set = set(names)
@@ -716,9 +753,10 @@ Usage:
   traceforge list [--limit 20]
   traceforge show <run_id>
   traceforge timeline <run_id> [--json]
+  traceforge compare <run_a> <run_b> [--json]
   traceforge report <run_id>
   traceforge open [run_id]
-  traceforge diff <run_a> <run_b>
+  traceforge diff <run_a> <run_b>   # alias of compare
   traceforge export <run_id> [--out trace.json]
   traceforge clean [--yes] [--all]
   traceforge demo [path]
@@ -729,6 +767,7 @@ Examples:
   traceforge run --live -- npm test
   traceforge run --shell -- "npm test && npm run lint"
   traceforge timeline <run_id>
+  traceforge compare <run_a> <run_b>
   traceforge dashboard
 
 Without installing:

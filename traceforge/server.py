@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
+from .compare import compare_runs
 from .core import run_command
 from .report import read_limited
 from .storage import Paths, connect, get_events, get_file_changes, get_run, init_workspace, list_runs, load_config
@@ -82,6 +83,16 @@ def make_handler(paths: Paths) -> type[BaseHTTPRequestHandler]:
                     return
                 if route == "/api/health":
                     self._send_json({"ok": True, "version": __version__, "root": str(paths.root)})
+                    return
+                if route == "/api/compare":
+                    query = parse_qs(parsed.query)
+                    run_a = query.get("run_a", [""])[0]
+                    run_b = query.get("run_b", [""])[0]
+                    payload = api_compare(paths, run_a, run_b)
+                    if payload is None:
+                        self._send_json({"error": "run not found", "run_a": run_a, "run_b": run_b}, status=404)
+                    else:
+                        self._send_json(payload)
                     return
                 if route == "/api/runs":
                     query = parse_qs(parsed.query)
@@ -193,6 +204,12 @@ def api_run_detail(paths: Paths, run_id: str) -> dict[str, Any] | None:
         "file_changes": changes,
         "artifacts": {"stdout": stdout, "stderr": stderr, "patch": patch},
     }
+
+
+def api_compare(paths: Paths, run_a: str, run_b: str) -> dict[str, Any] | None:
+    if not run_a or not run_b:
+        return None
+    return compare_runs(paths, run_a, run_b)
 
 
 def api_create_run(paths: Paths, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
@@ -326,6 +343,16 @@ def render_dashboard_html() -> str:
     .check { display: flex; align-items: center; gap: 7px; color: var(--muted); white-space: nowrap; }
     .status-bar { margin-top: 10px; color: var(--muted); font-size: 13px; min-height: 20px; }
     .status-bar.ok { color: var(--ok); } .status-bar.fail { color: var(--fail); } .status-bar.warn { color: var(--warn); }
+    .compare-card { background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02)); border: 1px solid var(--line); border-radius: 22px; padding: 16px; margin-bottom: 18px; }
+    .compare-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: center; }
+    .select { width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 13px; padding: 11px; outline: none; }
+    .compare-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+    .compare-metric { background: var(--panel-3); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+    .compare-metric span { color: var(--muted); font-size: 12px; display: block; margin-bottom: 6px; }
+    .compare-files { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+    .file-bucket { background: #050914; border: 1px solid var(--line); border-radius: 14px; padding: 12px; min-height: 90px; }
+    .file-bucket h4 { margin: 0 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    .file-bucket ul { margin: 0; padding-left: 18px; }
     .layout { display: grid; grid-template-columns: 430px 1fr; gap: 18px; align-items: start; }
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 22px; box-shadow: 0 22px 70px rgba(0,0,0,.25); overflow: hidden; backdrop-filter: blur(10px); }
     .panel-head { padding: 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
@@ -380,7 +407,7 @@ def render_dashboard_html() -> str:
     .event-data { margin-top: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .error { color: var(--fail); padding: 14px 16px; }
     .notice { color: var(--muted); background: rgba(255,255,255,.035); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
-    @media (max-width: 1120px) { .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); } .layout { grid-template-columns: 1fr; } .runs { max-height: 420px; } .runner-form { grid-template-columns: 1fr; } }
+    @media (max-width: 1120px) { .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); } .layout { grid-template-columns: 1fr; } .runs { max-height: 420px; } .runner-form, .compare-form { grid-template-columns: 1fr; } .compare-grid, .compare-files { grid-template-columns: 1fr; } }
     @media (max-width: 680px) { .app { padding: 14px; } header { flex-direction: column; align-items: flex-start; } .summary, .metrics { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 460px) { .summary, .metrics { grid-template-columns: 1fr; } }
   </style>
@@ -414,6 +441,19 @@ def render_dashboard_html() -> str:
       <div class="status-bar" id="runStatus"></div>
     </section>
 
+    <section class="compare-card">
+      <div class="runner-title">
+        <h2>Compare runs</h2>
+        <span class="muted">Compare exit codes, duration, event counts, patch size, and changed files between two runs.</span>
+      </div>
+      <div class="compare-form">
+        <select class="select" id="compareA"></select>
+        <select class="select" id="compareB"></select>
+        <button class="btn" id="compareBtn" type="button">Compare</button>
+      </div>
+      <div id="compareResult" class="status-bar"></div>
+    </section>
+
     <div class="layout">
       <aside class="panel">
         <div class="panel-head">
@@ -434,7 +474,7 @@ def render_dashboard_html() -> str:
   </div>
 
 <script>
-const state = { runs: [], selected: null, detail: null, tab: 'patch', query: '', filter: 'all', running: false };
+const state = { runs: [], selected: null, detail: null, tab: 'patch', query: '', filter: 'all', running: false, compare: null };
 const filters = [
   ['all', 'All'], ['success', 'Success'], ['failed', 'Failed'], ['changed', 'Changed'], ['risky', 'Risky']
 ];
@@ -501,6 +541,57 @@ function renderRuns() {
     </button>`;
   }).join('');
 }
+
+
+function renderCompareOptions() {
+  const opts = state.runs.map(r => `<option value="${esc(r.id)}">${esc(short(r.id, 18))} — ${esc(short(r.command, 42))}</option>`).join('');
+  $('compareA').innerHTML = opts || '<option>No runs</option>';
+  $('compareB').innerHTML = opts || '<option>No runs</option>';
+  if (state.runs[0]) $('compareA').value = state.runs[0].id;
+  if (state.runs[1]) $('compareB').value = state.runs[1].id;
+  else if (state.runs[0]) $('compareB').value = state.runs[0].id;
+}
+
+async function compareSelectedRuns() {
+  const a = $('compareA').value;
+  const b = $('compareB').value;
+  if (!a || !b) { $('compareResult').className = 'status-bar fail'; $('compareResult').textContent = 'Need two runs to compare.'; return; }
+  const res = await fetch('/api/compare?run_a=' + encodeURIComponent(a) + '&run_b=' + encodeURIComponent(b));
+  const data = await res.json();
+  if (!res.ok) { $('compareResult').className = 'status-bar fail'; $('compareResult').textContent = data.message || data.error || 'Compare failed.'; return; }
+  state.compare = data;
+  $('compareResult').className = 'status-bar';
+  $('compareResult').innerHTML = renderCompare(data);
+}
+
+function renderCompare(data) {
+  const a = data.run_a.metrics;
+  const b = data.run_b.metrics;
+  const d = data.diff;
+  return `<div class="compare-grid">
+    ${compareMetric('Exit Code', a.exit_code, b.exit_code, d.exit_code_changed ? 'changed' : 'same')}
+    ${compareMetric('Duration', a.duration_ms + 'ms', b.duration_ms + 'ms', signed(d.duration_delta_ms) + 'ms')}
+    ${compareMetric('Changed Files', a.changed_files_count, b.changed_files_count, signed(d.changed_files_delta))}
+    ${compareMetric('Events', a.event_count, b.event_count, signed(d.event_count_delta))}
+    ${compareMetric('Patch Size', a.patch_chars, b.patch_chars, signed(d.patch_size_delta_chars))}
+  </div>
+  <div class="compare-files">
+    ${fileBucket('Common files', d.common_files)}
+    ${fileBucket('Only in A', d.only_a)}
+    ${fileBucket('Only in B', d.only_b)}
+  </div>`;
+}
+
+function compareMetric(label, a, b, delta) {
+  return `<div class="compare-metric"><span>${esc(label)}</span><strong>A: ${esc(a)}</strong><br/><strong>B: ${esc(b)}</strong><div class="muted">Δ ${esc(delta)}</div></div>`;
+}
+
+function fileBucket(title, files) {
+  const body = files && files.length ? `<ul>${files.map(f => `<li><code>${esc(f)}</code></li>`).join('')}</ul>` : '<p class="muted">none</p>';
+  return `<div class="file-bucket"><h4>${esc(title)}</h4>${body}</div>`;
+}
+
+function signed(n) { n = Number(n || 0); return n > 0 ? '+' + n : String(n); }
 
 async function selectRun(id) {
   state.selected = id;
@@ -662,6 +753,7 @@ async function copyArtifact() {
 }
 
 $('refreshBtn').addEventListener('click', () => loadRuns({keepSelection: true}));
+$('compareBtn').addEventListener('click', compareSelectedRuns);
 $('search').addEventListener('input', (e) => { state.query = e.target.value; renderRuns(); });
 $('runForm').addEventListener('submit', (e) => {
   e.preventDefault();
