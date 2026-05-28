@@ -1,15 +1,25 @@
 # TraceForge
 
-> **Local black-box recorder and adapter layer for command runs and AI coding agents.**
+> **See exactly what your AI coding agent changed, printed, and broke.**
 
-TraceForge records what actually happened during a coding-agent or shell-command run, and now includes a thin adapter layer for wrapping agent CLIs: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, security findings, run comparisons, HTML reports, and JSON traces. It also ships with a localhost dashboard so you can replay and inspect runs without uploading your code anywhere.
+TraceForge is a local-first black-box recorder for AI coding agents and shell commands. It captures the command, stdout, stderr, exit code, duration, Git diff, changed files, timeline events, risk findings, run comparisons, HTML reports, and redacted JSON exports, then lets you inspect everything in a localhost dashboard.
+
+Use it when you want an audit trail for Claude Code, Codex, Aider, opencode, or any command that can change a repository.
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-1.3.1-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-1.3.2-blue">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="status" src="https://img.shields.io/badge/status-stable-purple">
 </p>
+
+```bash
+pip install traceforge-ai
+traceforge run --live -- python test_calculator.py
+traceforge dashboard
+```
+
+![TraceForge demo](docs/assets/demo.gif)
 
 ---
 
@@ -26,25 +36,45 @@ AI coding agents are powerful, but they are still hard to audit:
 
 TraceForge gives every run a local, reviewable trace.
 
-## What it looks like
+## The workflow
 
-Start the dashboard from a project directory:
+Record an agent or command:
+
+```bash
+traceforge run --live -- python test_calculator.py
+```
+
+Open the dashboard:
 
 ```bash
 traceforge dashboard
 ```
 
-It shows run metrics, searchable run history, command details, timeline events, risk report, stdout, stderr, patch diff, changed files, compare view, and full JSON.
+Compare attempts or export a safe trace:
 
-![TraceForge demo](docs/assets/demo.gif)
+```bash
+traceforge compare <run_a> <run_b>
+traceforge export <run_id> --redact --out trace.redacted.json
+```
+
+The dashboard shows run metrics, searchable run history, command details, timeline events, risk report, stdout, stderr, patch diff, changed files, compare view, and full JSON.
+
 ![TraceForge dashboard](docs/assets/dashboard.png)
+
+## Typical use cases
+
+- **Review an AI coding agent run**: see the exact command, output, file changes, patch, and risk signals.
+- **Compare two fixes**: run Claude/Codex/Aider twice and compare duration, exit code, files touched, and patch size.
+- **Share a reproducible trace**: export JSON with `--redact` before attaching it to an issue, PR, or bug report.
+- **Debug flaky repair attempts**: keep each run as a local timeline instead of relying on terminal scrollback.
+- **Audit risky edits**: flag changes to dependency files, CI workflows, sensitive-looking paths, and possible secrets.
 
 ## 30-second demo
 
-From the repository root:
+From any machine with Python 3.10+ and Git:
 
 ```bash
-python -m pip install -e .
+python -m pip install traceforge-ai
 traceforge demo
 cd traceforge-demo-project
 traceforge run --live -- python test_calculator.py
@@ -171,7 +201,7 @@ http://127.0.0.1:8787
 - **HTML reports**: self-contained report pages for each run.
 - **JSON export**: `traceforge export <run_id>` creates machine-readable traces; `--redact` masks common secrets and local user paths before sharing.
 - **Doctor checks**: `traceforge doctor` checks Python, Git, optional toolchains, workspace, and database.
-- **Selftest**: `traceforge selftest` creates a temporary Git repo and verifies the full record → diff → report → JSON → compare → risk flow.
+- **Selftest**: `traceforge selftest` creates a temporary Git repo and verifies the full record -> diff -> report -> JSON -> compare -> risk flow.
 - **Version guard**: `traceforge version-check` validates version metadata; `traceforge reindex` rebuilds the local run index from existing run artifacts.
 - **Release checks**: `traceforge release-check` validates local source trees and release zip layout.
 
@@ -319,22 +349,14 @@ TraceForge writes local data to `.traceforge/`:
 
 ```text
 CLI / dashboard command
-        ↓
-security pre-check
-        ↓
-Git snapshot before
-        ↓
-subprocess execution
-        ↓
-stdout/stderr capture
-        ↓
-Git snapshot after + patch diff
-        ↓
-SQLite trace storage
-        ↓
-timeline events + risk assessment
-        ↓
-HTML report / JSON export / dashboard API
+        -> security pre-check
+        -> Git snapshot before
+        -> subprocess execution
+        -> stdout/stderr capture
+        -> Git snapshot after + patch diff
+        -> SQLite trace storage
+        -> timeline events + risk assessment
+        -> HTML report / JSON export / dashboard API
 ```
 
 ## Public-readiness checks
@@ -352,7 +374,7 @@ traceforge release-check
 Before sharing a zip release:
 
 ```bash
-traceforge release-check --zip traceforge_v1_3_1.zip
+traceforge release-check --zip traceforge_v1_3_2.zip
 ```
 
 ## Roadmap
@@ -366,7 +388,6 @@ traceforge release-check --zip traceforge_v1_3_1.zip
 - Run tags, notes, and search improvements.
 - Timeline filtering and event detail drawers.
 - Better dashboard empty states and error recovery.
-- Installable package release workflow.
 
 ### Agent-focused roadmap
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.2
+
+- Sharpened the README first screen for public discovery and star conversion.
+- Added concrete use cases for reviewing, comparing, sharing, debugging, and auditing agent runs.
+- Fixed README arrow rendering and removed the completed package-release workflow item from the roadmap.
+
 ## 1.3.1
 
 - Renamed the PyPI distribution to `traceforge-ai` while keeping the installed CLI command as `traceforge`.

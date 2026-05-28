@@ -1,6 +1,6 @@
 [project]
 name = "traceforge-ai"
-version = "1.3.1"
+version = "1.3.2"
 description = "A black-box recorder for AI coding agents and shell commands."
 readme = "README.md"
 requires-python = ">=3.10"

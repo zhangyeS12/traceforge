@@ -13,7 +13,7 @@ traceforge selftest
 For a zip artifact:
 
 ```bash
-traceforge release-check --zip traceforge_v1_3_1.zip
+traceforge release-check --zip traceforge_v1_3_2.zip
 ```
 
 ## Repository page
