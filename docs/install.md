@@ -1,12 +1,19 @@
 # Installing TraceForge
 
-TraceForge is currently distributed as a source repository.
+TraceForge is published to PyPI as `traceforge-ai`. The installed command is still `traceforge`.
 
 ## Requirements
 
 - Python 3.10+
 - Git
 - A Git project if you want meaningful diff capture
+
+## Install from PyPI
+
+```bash
+python -m pip install traceforge-ai
+traceforge version
+```
 
 ## Local development install
 

@@ -934,6 +934,7 @@ def _check_release_tree(root: Path) -> list[dict[str, Any]]:
         "SECURITY.md",
         "CONTRIBUTING.md",
         ".github/workflows/ci.yml",
+        ".github/workflows/publish.yml",
         ".github/ISSUE_TEMPLATE/bug_report.yml",
         ".github/ISSUE_TEMPLATE/feature_request.yml",
         ".github/ISSUE_TEMPLATE/agent_adapter.yml",
@@ -1003,6 +1004,7 @@ def _check_release_zip(zip_path: Path) -> list[dict[str, Any]]:
                 "traceforge/SECURITY.md",
                 "traceforge/CONTRIBUTING.md",
                 "traceforge/.github/workflows/ci.yml",
+                "traceforge/.github/workflows/publish.yml",
                 "traceforge/.github/ISSUE_TEMPLATE/bug_report.yml",
                 "traceforge/.github/ISSUE_TEMPLATE/feature_request.yml",
                 "traceforge/.github/ISSUE_TEMPLATE/agent_adapter.yml",
@@ -1027,6 +1029,7 @@ def _check_release_zip(zip_path: Path) -> list[dict[str, Any]]:
                 "traceforge/traceforge/compare.py",
                 "traceforge/traceforge/risk.py",
                 "traceforge/traceforge/redact.py",
+                "traceforge/traceforge/storage.py",
                 "traceforge/traceforge/server.py",
             ]
             name_set = set(names)

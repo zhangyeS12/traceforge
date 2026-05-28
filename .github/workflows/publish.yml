@@ -1,0 +1,44 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade build
+
+      - name: Build distribution
+        run: python -m build
+
+      - name: Check release metadata
+        run: |
+          python -m pip install .
+          traceforge version-check
+          traceforge release-check
+          traceforge selftest
+          python -m unittest discover -s tests -v
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*

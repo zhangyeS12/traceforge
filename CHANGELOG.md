@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.1
+
+- Renamed the PyPI distribution to `traceforge-ai` while keeping the installed CLI command as `traceforge`.
+- Added a tag-triggered GitHub Actions publishing workflow for PyPI Trusted Publishing and GitHub Releases.
+- Updated installation and release documentation for PyPI-based installs.
+
 ## 1.3.0
 
 - Restored the README demo GIF and added a 30-second first-run demo.
