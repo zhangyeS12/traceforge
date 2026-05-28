@@ -6,18 +6,20 @@ Use this checklist before publishing TraceForge or preparing a public demo.
 
 ```bash
 traceforge release-check
+traceforge version-check
 traceforge selftest
 ```
 
 For a zip artifact:
 
 ```bash
-traceforge release-check --zip traceforge_v0_6.zip
+traceforge release-check --zip traceforge_v1_3_0.zip
 ```
 
 ## Repository page
 
 - README has a clear one-line pitch.
+- README includes a 30-second demo.
 - README includes Quick Start.
 - README explains local-first privacy.
 - README includes CLI reference.
@@ -35,7 +37,7 @@ traceforge release-check --zip traceforge_v0_6.zip
 
 - Create a clean demo run using `docs/demo-script.md`.
 - Add a dashboard screenshot to `docs/assets/dashboard.png`.
-- Optional: record a GIF showing dashboard command execution.
+- Add a GIF showing dashboard command execution to `docs/assets/demo.gif`.
 
 ## Commit hygiene
 

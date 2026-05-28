@@ -21,6 +21,7 @@ from . import __version__
 from .agent import agent_metadata, build_agent_command, list_agent_adapters
 from .compare import compare_runs
 from .core import event, run_command
+from .redact import redact_payload
 from .report import generate_index, generate_report
 from .risk import assess_run
 from .server import serve_dashboard
@@ -130,6 +131,11 @@ def cmd_run(args: list[str]) -> int:
     print(f"STDERR: {result.stderr_path}")
     print(f"Patch:  {result.patch_path}")
     print(f"Report: {report_path}")
+    print("Next:")
+    print(f"  traceforge show {result.run_id}")
+    print(f"  traceforge open {result.run_id}")
+    print("  traceforge dashboard")
+    print(f"  traceforge export {result.run_id} --redact --out trace.redacted.json")
     return 0 if ns.no_propagate_exit else result.exit_code
 
 
@@ -453,11 +459,12 @@ def cmd_export(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="traceforge export")
     parser.add_argument("run_id")
     parser.add_argument("--out", type=Path, default=None, help="output JSON path")
+    parser.add_argument("--redact", action="store_true", help="redact common secrets and local user paths before writing JSON")
     ns = parser.parse_args(args)
 
     paths = init_workspace()
     try:
-        out = export_run(paths, ns.run_id, ns.out)
+        out = export_run(paths, ns.run_id, ns.out, redact=ns.redact)
     except KeyError:
         print(f"Run not found: {ns.run_id}")
         return 1
@@ -465,7 +472,7 @@ def cmd_export(args: list[str]) -> int:
     return 0
 
 
-def export_run(paths: Any, run_id: str, out: Path | None = None) -> Path:
+def export_run(paths: Any, run_id: str, out: Path | None = None, *, redact: bool = False) -> Path:
     """Export one run as a stable JSON artifact.
 
     Kept as a helper so both `traceforge export` and `traceforge selftest`
@@ -486,6 +493,7 @@ def export_run(paths: Any, run_id: str, out: Path | None = None) -> Path:
 
     payload: dict[str, Any] = {
         "schema_version": 1,
+        "redacted": redact,
         "run": dict(run),
         "events": [dict(ev) for ev in events],
         "file_changes": [dict(ch) for ch in changes],
@@ -495,6 +503,8 @@ def export_run(paths: Any, run_id: str, out: Path | None = None) -> Path:
             "patch": read_rel(run["patch_path"]),
         },
     }
+    if redact:
+        payload = redact_payload(payload)
     target = out or (paths.runs_dir / run_id / "trace.json")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -929,6 +939,7 @@ def _check_release_tree(root: Path) -> list[dict[str, Any]]:
         ".github/ISSUE_TEMPLATE/agent_adapter.yml",
         "docs/install.md",
         "docs/release.md",
+        "docs/agent-recipes.md",
         "examples/demo_agent_run/README.md",
         "examples/demo_agent_run/buggy_math.py",
         "examples/demo_agent_run/test_buggy_math.py",
@@ -937,13 +948,16 @@ def _check_release_tree(root: Path) -> list[dict[str, Any]]:
         "docs/demo-gif.md",
         "docs/v1.1.0-agent-adapters.md",
         "docs/v1.2.0-accurate-change-attribution.md",
+        "docs/v1.3.0-first-run-and-sharing.md",
         "tests/test_git_utils.py",
+        "tests/test_redact.py",
         "traceforge/__init__.py",
         "traceforge/cli.py",
         "traceforge/core.py",
         "traceforge/agent.py",
         "traceforge/compare.py",
         "traceforge/risk.py",
+        "traceforge/redact.py",
         "traceforge/storage.py",
         "traceforge/server.py",
     ]
@@ -994,6 +1008,7 @@ def _check_release_zip(zip_path: Path) -> list[dict[str, Any]]:
                 "traceforge/.github/ISSUE_TEMPLATE/agent_adapter.yml",
                 "traceforge/docs/install.md",
                 "traceforge/docs/release.md",
+                "traceforge/docs/agent-recipes.md",
                 "traceforge/examples/demo_agent_run/README.md",
                 "traceforge/examples/demo_agent_run/buggy_math.py",
                 "traceforge/examples/demo_agent_run/test_buggy_math.py",
@@ -1002,13 +1017,16 @@ def _check_release_zip(zip_path: Path) -> list[dict[str, Any]]:
                 "traceforge/docs/demo-gif.md",
                 "traceforge/docs/v1.1.0-agent-adapters.md",
                 "traceforge/docs/v1.2.0-accurate-change-attribution.md",
+                "traceforge/docs/v1.3.0-first-run-and-sharing.md",
                 "traceforge/tests/test_git_utils.py",
+                "traceforge/tests/test_redact.py",
                 "traceforge/traceforge/__init__.py",
                 "traceforge/traceforge/cli.py",
                 "traceforge/traceforge/core.py",
                 "traceforge/traceforge/agent.py",
                 "traceforge/traceforge/compare.py",
                 "traceforge/traceforge/risk.py",
+                "traceforge/traceforge/redact.py",
                 "traceforge/traceforge/server.py",
             ]
             name_set = set(names)
@@ -1297,7 +1315,7 @@ Usage:
   traceforge report <run_id>
   traceforge open [run_id]
   traceforge diff <run_a> <run_b>   # alias of compare
-  traceforge export <run_id> [--out trace.json]
+  traceforge export <run_id> [--out trace.json] [--redact]
   traceforge clean [--yes] [--all]
   traceforge demo [path]
   traceforge version

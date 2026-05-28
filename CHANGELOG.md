@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0
+
+- Restored the README demo GIF and added a 30-second first-run demo.
+- Added clearer usage guidance for when TraceForge is useful, what it is not, and how it differs from Git diff plus terminal logs.
+- Added `traceforge export --redact` for best-effort masking of common secrets and local user paths in JSON exports.
+- Added agent recipe documentation for Codex, Claude Code, Aider, opencode, shell passthrough, and custom adapters.
+- Added next-step CLI hints after `traceforge run`.
+- Added redaction unit tests.
+
 ## 1.2.1
 
 - Fixed run-attributed patch rendering for tracked files that become binary, too large, or otherwise non-text during a run.

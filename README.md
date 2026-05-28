@@ -5,7 +5,7 @@
 TraceForge records what actually happened during a coding-agent or shell-command run, and now includes a thin adapter layer for wrapping agent CLIs: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, security findings, run comparisons, HTML reports, and JSON traces. It also ships with a localhost dashboard so you can replay and inspect runs without uploading your code anywhere.
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-1.2.1-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-1.3.0-blue">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="status" src="https://img.shields.io/badge/status-stable-purple">
@@ -36,7 +36,40 @@ traceforge dashboard
 
 It shows run metrics, searchable run history, command details, timeline events, risk report, stdout, stderr, patch diff, changed files, compare view, and full JSON.
 
+![TraceForge demo](docs/assets/demo.gif)
 ![TraceForge dashboard](docs/assets/dashboard.png)
+
+## 30-second demo
+
+From the repository root:
+
+```bash
+python -m pip install -e .
+traceforge demo
+cd traceforge-demo-project
+traceforge run --live -- python test_calculator.py
+traceforge dashboard
+```
+
+You should see one recorded run with stdout, exit code, timeline events, changed files, risk findings, and a replayable patch view.
+
+## When to use it
+
+Use TraceForge when:
+
+- you are letting an AI coding agent modify a repository
+- you want a local audit trail for command runs
+- you need to compare two repair attempts
+- you want to export a reproducible run report for review
+
+Do not use TraceForge as:
+
+- a sandbox
+- a secret scanner replacement
+- a full CI system
+- a child-process monitor for every process an agent may spawn
+
+Git shows what changed. Terminal logs show what printed. TraceForge links the command, output, timeline, risk findings, and patch into one replayable local trace.
 
 ## Install
 
@@ -129,7 +162,7 @@ http://127.0.0.1:8787
 - **Run-attributed Git diff capture**: records files changed by the current run, filters out pre-existing unchanged dirty files, and includes untracked new file contents in the patch.
 - **Local SQLite store**: traces live under `.traceforge/` inside your project.
 - **HTML reports**: self-contained report pages for each run.
-- **JSON export**: `traceforge export <run_id>` creates machine-readable traces.
+- **JSON export**: `traceforge export <run_id>` creates machine-readable traces; `--redact` masks common secrets and local user paths before sharing.
 - **Doctor checks**: `traceforge doctor` checks Python, Git, optional toolchains, workspace, and database.
 - **Selftest**: `traceforge selftest` creates a temporary Git repo and verifies the full record → diff → report → JSON → compare → risk flow.
 - **Version guard**: `traceforge version-check` validates version metadata; `traceforge reindex` rebuilds the local run index from existing run artifacts.
@@ -153,7 +186,7 @@ traceforge report <run_id>
 traceforge open [run_id]
 traceforge dashboard [--host 127.0.0.1] [--port 8787] [--no-open]
 traceforge diff <run_a> <run_b>  # alias for compare
-traceforge export <run_id> [--out trace.json]
+traceforge export <run_id> [--out trace.json] [--redact]
 traceforge clean [--yes] [--all]
 traceforge selftest [--json]
 traceforge version-check
@@ -204,6 +237,8 @@ traceforge agent run codex --preview -- "fix the failing tests"
 
 TraceForge keeps adapters thin: the adapter builds the local command, and the core recorder still captures stdout, stderr, Git diff, timeline, compare, and risk report.
 
+See [docs/agent-recipes.md](docs/agent-recipes.md) for Codex, Claude Code, Aider, opencode, shell, and custom adapter examples.
+
 ## Run comparison
 
 Compare two attempts:
@@ -240,6 +275,16 @@ The risk report looks for:
 - broad file changes
 - possible secret material in patches
 - traceback output in stderr
+
+## Sharing traces safely
+
+TraceForge is local-first, but exported traces can still contain private source, terminal output, local usernames, tokens, or API keys. Use redacted export before attaching a trace to an issue or review:
+
+```bash
+traceforge export <run_id> --redact --out trace.redacted.json
+```
+
+Redaction is a best-effort sharing aid, not a guarantee. Review exported files before posting them publicly.
 
 ## Local data layout
 
@@ -300,7 +345,7 @@ traceforge release-check
 Before sharing a zip release:
 
 ```bash
-traceforge release-check --zip traceforge_v1_2_1.zip
+traceforge release-check --zip traceforge_v1_3_0.zip
 ```
 
 ## Roadmap
