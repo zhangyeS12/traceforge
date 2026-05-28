@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1
+
+- Fixed run-attributed patch rendering for tracked files that become binary, too large, or otherwise non-text during a run.
+- Added coverage to ensure non-text tracked modifications are not misreported as deleted files.
+- Closed SQLite connections when using `with connect(...)` to avoid ResourceWarning noise in tests and long-running sessions.
+
 ## 1.2.0
 
 - Added run-attributed change detection so pre-existing unchanged dirty files are no longer counted as files changed by the current run.

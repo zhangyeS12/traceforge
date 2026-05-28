@@ -5,7 +5,7 @@
 TraceForge records what actually happened during a coding-agent or shell-command run, and now includes a thin adapter layer for wrapping agent CLIs: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, security findings, run comparisons, HTML reports, and JSON traces. It also ships with a localhost dashboard so you can replay and inspect runs without uploading your code anywhere.
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-1.2.0-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-1.2.1-blue">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="status" src="https://img.shields.io/badge/status-stable-purple">
@@ -300,7 +300,7 @@ traceforge release-check
 Before sharing a zip release:
 
 ```bash
-traceforge release-check --zip traceforge_v1_2.zip
+traceforge release-check --zip traceforge_v1_2_1.zip
 ```
 
 ## Roadmap

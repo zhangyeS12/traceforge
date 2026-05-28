@@ -94,6 +94,21 @@ class GitAttributionTests(unittest.TestCase):
         self.assertIn("new_agent_file.py", patch)
         self.assertIn('print("new file content")', patch)
 
+    def test_tracked_file_changed_to_binary_is_not_reported_as_deleted(self) -> None:
+        (self.root / "make_binary.py").write_text(
+            'from pathlib import Path\nPath("a.py").write_bytes(b"\\x00\\x01traceforge-binary")\n',
+            encoding="utf-8",
+        )
+
+        result = run_command([sys.executable, "make_binary.py"], cwd=self.root)
+        changes = self._changes_for(result.run_id)
+        patch = result.patch_path.read_text(encoding="utf-8", errors="replace")
+
+        self.assertIn(("M", "a.py"), changes)
+        self.assertIn("could not capture textual content", patch)
+        self.assertIn("reason=binary", patch)
+        self.assertNotIn("deleted file mode", patch)
+
 
 if __name__ == "__main__":
     unittest.main()

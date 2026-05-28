@@ -53,6 +53,18 @@ class Paths:
     reports_dir: Path
 
 
+class TraceForgeConnection(sqlite3.Connection):
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        try:
+            if exc_type is None:
+                self.commit()
+            else:
+                self.rollback()
+        finally:
+            self.close()
+        return False
+
+
 def paths_for(cwd: Path | None = None) -> Paths:
     root = (cwd or Path.cwd()).resolve()
     trace_dir = root / TRACE_DIR
@@ -130,7 +142,7 @@ def _deep_update(base: dict[str, Any], override: dict[str, Any]) -> None:
 
 
 def connect(paths: Paths) -> sqlite3.Connection:
-    conn = sqlite3.connect(paths.db_path)
+    conn = sqlite3.connect(paths.db_path, factory=TraceForgeConnection)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

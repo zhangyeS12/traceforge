@@ -17,6 +17,12 @@ class GitSnapshot(NamedTuple):
     file_contents: dict[str, str | None]
 
 
+class WorktreeText(NamedTuple):
+    exists: bool
+    text: str | None
+    reason: str
+
+
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
@@ -160,14 +166,29 @@ def file_fingerprint(cwd: Path, rel_path: str) -> str:
 
 
 def read_worktree_text(cwd: Path, rel_path: str) -> str | None:
+    return read_worktree_text_state(cwd, rel_path).text
+
+
+def read_worktree_text_state(cwd: Path, rel_path: str) -> WorktreeText:
     path = (cwd / rel_path).resolve()
     try:
-        if not _is_inside(path, cwd.resolve()) or not path.exists() or path.is_dir():
-            return None
+        if not _is_inside(path, cwd.resolve()):
+            return WorktreeText(False, None, "outside-root")
+        if not path.exists():
+            return WorktreeText(False, None, "missing")
+        if path.is_dir():
+            return WorktreeText(True, None, "directory")
         data = path.read_bytes()
-    except OSError:
-        return None
-    return _decode_patchable_bytes(data)
+    except OSError as exc:
+        return WorktreeText(False, None, f"error:{exc.__class__.__name__}")
+    text = _decode_patchable_bytes(data)
+    if text is None:
+        if len(data) > MAX_PATCH_FILE_BYTES:
+            return WorktreeText(True, None, "too-large")
+        if b"\x00" in data:
+            return WorktreeText(True, None, "binary")
+        return WorktreeText(True, None, "not-text")
+    return WorktreeText(True, text, "text")
 
 
 def read_head_text(cwd: Path, rel_path: str) -> str | None:
@@ -195,8 +216,8 @@ def diff_for_run(cwd: Path, before: GitSnapshot, after: GitSnapshot, file_change
     chunks: list[str] = []
     for status, path in file_changes:
         before_text = _before_text_for_change(cwd, before, status, path)
-        after_text = read_worktree_text(cwd, path)
-        chunks.append(_unified_file_patch(path, before_text, after_text, status))
+        after_state = read_worktree_text_state(cwd, path)
+        chunks.append(_unified_file_patch(path, before_text, after_state, status))
     return "\n".join(chunk for chunk in chunks if chunk).rstrip() + ("\n" if chunks else "")
 
 
@@ -216,25 +237,28 @@ def _before_text_for_change(cwd: Path, before: GitSnapshot, status: str, path: s
     return read_head_text(cwd, path)
 
 
-def _unified_file_patch(path: str, before_text: str | None, after_text: str | None, status: str) -> str:
+def _unified_file_patch(path: str, before_text: str | None, after_state: WorktreeText, status: str) -> str:
     before_lines = [] if before_text is None else before_text.splitlines(keepends=True)
-    after_lines = [] if after_text is None else after_text.splitlines(keepends=True)
+    after_lines = [] if after_state.text is None else after_state.text.splitlines(keepends=True)
 
     header = [f"diff --git a/{path} b/{path}"]
-    if before_text is None and after_text is not None:
+    if before_text is None and after_state.text is not None:
         header.append("new file mode 100644")
         fromfile = "/dev/null"
         tofile = f"b/{path}"
-    elif before_text is not None and after_text is None:
+    elif before_text is not None and not after_state.exists:
         header.append("deleted file mode 100644")
         fromfile = f"a/{path}"
         tofile = "/dev/null"
+    elif before_text is not None and after_state.text is None:
+        header.append(f"# TraceForge could not capture textual content for {path!r} (status={status}, reason={after_state.reason}).")
+        return "\n".join(header) + "\n"
     else:
         fromfile = f"a/{path}"
         tofile = f"b/{path}"
 
-    if before_text is None and after_text is None:
-        header.append(f"# TraceForge could not capture textual content for {path!r} (status={status}).")
+    if before_text is None and after_state.text is None:
+        header.append(f"# TraceForge could not capture textual content for {path!r} (status={status}, reason={after_state.reason}).")
         return "\n".join(header) + "\n"
 
     diff_lines = list(difflib.unified_diff(before_lines, after_lines, fromfile=fromfile, tofile=tofile, lineterm=""))
