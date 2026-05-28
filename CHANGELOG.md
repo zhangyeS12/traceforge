@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- Added run-attributed change detection so pre-existing unchanged dirty files are no longer counted as files changed by the current run.
+- Added patch capture for untracked new file contents.
+- Added focused unittest coverage for dirty-worktree attribution and untracked file patch generation.
+- Fixed README version-guard formatting, updated supported versions, refreshed release-check examples, and removed duplicate package keywords.
+
 ## 1.1.1
 
 - Added `traceforge reindex` to rebuild the SQLite run index from existing `.traceforge/runs` artifacts and reports.

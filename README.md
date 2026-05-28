@@ -5,7 +5,7 @@
 TraceForge records what actually happened during a coding-agent or shell-command run, and now includes a thin adapter layer for wrapping agent CLIs: stdout, stderr, exit code, duration, Git diff, changed files, timeline events, security findings, run comparisons, HTML reports, and JSON traces. It also ships with a localhost dashboard so you can replay and inspect runs without uploading your code anywhere.
 
 <p align="left">
-  <img alt="version" src="https://img.shields.io/badge/version-1.1.1-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-1.2.0-blue">
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-blue">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="status" src="https://img.shields.io/badge/status-stable-purple">
@@ -36,7 +36,6 @@ traceforge dashboard
 
 It shows run metrics, searchable run history, command details, timeline events, risk report, stdout, stderr, patch diff, changed files, compare view, and full JSON.
 
-![TraceForge demo](docs/assets/demo.gif)
 ![TraceForge dashboard](docs/assets/dashboard.png)
 
 ## Install
@@ -127,14 +126,13 @@ http://127.0.0.1:8787
 - **Run comparison**: compare two runs by exit code, duration, changed files, event count, patch size, and file overlap.
 - **Security risk report**: scan risky commands, sensitive-looking files, dependency/CI changes, broad file changes, traceback output, and possible secret material.
 - **Live output**: `--live` streams stdout/stderr while still recording artifacts.
-- **Git diff capture**: records changed files, diff stat, and patch.
+- **Run-attributed Git diff capture**: records files changed by the current run, filters out pre-existing unchanged dirty files, and includes untracked new file contents in the patch.
 - **Local SQLite store**: traces live under `.traceforge/` inside your project.
 - **HTML reports**: self-contained report pages for each run.
 - **JSON export**: `traceforge export <run_id>` creates machine-readable traces.
 - **Doctor checks**: `traceforge doctor` checks Python, Git, optional toolchains, workspace, and database.
 - **Selftest**: `traceforge selftest` creates a temporary Git repo and verifies the full record → diff → report → JSON → compare → risk flow.
-- **Version guard**: `traceforge version-check
-traceforge reindex` validates pyproject, runtime, README badge, and CHANGELOG versions.
+- **Version guard**: `traceforge version-check` validates version metadata; `traceforge reindex` rebuilds the local run index from existing run artifacts.
 - **Release checks**: `traceforge release-check` validates local source trees and release zip layout.
 
 ## CLI reference
@@ -302,7 +300,7 @@ traceforge release-check
 Before sharing a zip release:
 
 ```bash
-traceforge release-check --zip traceforge_v1_0_rc2.zip
+traceforge release-check --zip traceforge_v1_2.zip
 ```
 
 ## Roadmap

@@ -6,8 +6,10 @@ TraceForge is a local-first developer tool. It records command runs and Git chan
 
 | Version | Supported |
 | --- | --- |
-| 1.0.0-rc1 | Yes |
-| 0.x | Best effort |
+| 1.2.x | Yes |
+| 1.1.x | Yes |
+| 1.0.x | Best effort |
+| 0.x | Unsupported or best effort |
 
 ## Reporting a vulnerability
 

@@ -208,11 +208,10 @@ def run_command(
         "dirty": bool(after.status.strip()),
     })
 
-    patch = git_utils.diff(paths.root)
+    file_changes = git_utils.changed_files_after(before, after)
+    patch = git_utils.diff_for_run(paths.root, before, after, file_changes)
     patch_path.write_text(patch, encoding="utf-8", errors="replace")
-    stat = git_utils.diff_stat(paths.root)
-
-    file_changes = git_utils.changed_files_after(before.status, after.status)
+    stat = git_utils.diff_stat_for_changes(patch, file_changes)
     add("git.diff.captured", f"Captured Git diff with {len(file_changes)} changed file(s)", {
         "patch_path": str(patch_path.relative_to(paths.root)),
         "diff_stat": stat,
